@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User } from 'lucide-react';
+import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink } from 'lucide-react';
 
 export default function ClientProjectManager() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -17,49 +17,19 @@ export default function ClientProjectManager() {
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
 
-  // Storage helper - uses localStorage as fallback
+  // Storage helper - uses localStorage
   const storage = {
     async get(key) {
-      try {
-        // Try window.storage first if available
-        if (window.storage && typeof window.storage.get === 'function') {
-          return await window.storage.get(key);
-        }
-      } catch (error) {
-        console.log('window.storage not available, using localStorage');
-      }
-      
-      // Fallback to localStorage
       const value = localStorage.getItem(key);
       return value ? { key, value } : null;
     },
     
     async set(key, value) {
-      try {
-        // Try window.storage first if available
-        if (window.storage && typeof window.storage.set === 'function') {
-          return await window.storage.set(key, value);
-        }
-      } catch (error) {
-        console.log('window.storage not available, using localStorage');
-      }
-      
-      // Fallback to localStorage
       localStorage.setItem(key, value);
       return { key, value };
     },
     
     async delete(key) {
-      try {
-        // Try window.storage first if available
-        if (window.storage && typeof window.storage.delete === 'function') {
-          return await window.storage.delete(key);
-        }
-      } catch (error) {
-        console.log('window.storage not available, using localStorage');
-      }
-      
-      // Fallback to localStorage
       localStorage.removeItem(key);
       return { key, deleted: true };
     }
@@ -135,9 +105,7 @@ export default function ClientProjectManager() {
 
   const saveTeamMembers = async (newTeam) => {
     try {
-      console.log('Attempting to save team members:', newTeam);
       await storage.set('team-members', JSON.stringify(newTeam));
-      console.log('Team members saved successfully');
       setTeamMembers(newTeam);
       return true;
     } catch (error) {
@@ -206,18 +174,9 @@ export default function ClientProjectManager() {
 
   // Team functions
   const addTeamMember = async (member) => {
-    console.log('addTeamMember called with:', member);
     const newMember = { ...member, id: Date.now().toString() };
-    console.log('New member with ID:', newMember);
-    const newTeamArray = [...teamMembers, newMember];
-    console.log('New team array:', newTeamArray);
-    const success = await saveTeamMembers(newTeamArray);
-    if (success) {
-      showNotification('Team member added successfully!');
-      console.log('Team member added successfully');
-    } else {
-      console.log('Failed to add team member');
-    }
+    const success = await saveTeamMembers([...teamMembers, newMember]);
+    if (success) showNotification('Team member added successfully!');
   };
 
   const updateTeamMember = async (id, updatedMember) => {
@@ -308,6 +267,28 @@ export default function ClientProjectManager() {
           from { opacity: 0; transform: translateX(100%); }
           to { opacity: 1; transform: translateX(0); }
         }
+        
+        .kanban-column {
+          min-height: 500px;
+        }
+        
+        .kanban-card {
+          cursor: grab;
+          transition: all 0.2s ease;
+        }
+        
+        .kanban-card:active {
+          cursor: grabbing;
+          opacity: 0.5;
+        }
+        
+        .kanban-card.dragging {
+          opacity: 0.5;
+        }
+        
+        .kanban-column.drag-over {
+          background: rgba(251, 191, 36, 0.1);
+        }
       `}</style>
 
       {/* Notification */}
@@ -336,6 +317,8 @@ export default function ClientProjectManager() {
           <div className="flex space-x-1">
             {[
               { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+              { id: 'kanban', label: 'Kanban', icon: Trello },
+              { id: 'gantt', label: 'Gantt', icon: BarChart3 },
               { id: 'clients', label: 'Clients', icon: Users },
               { id: 'projects', label: 'Projects', icon: FolderKanban },
               { id: 'tasks', label: 'Tasks', icon: CheckSquare },
@@ -366,6 +349,29 @@ export default function ClientProjectManager() {
             projects={projects}
             tasks={tasks}
             teamMembers={teamMembers}
+            onNavigate={setActiveTab}
+          />
+        )}
+        
+        {activeTab === 'kanban' && (
+          <KanbanView
+            tasks={tasks}
+            projects={projects}
+            clients={clients}
+            teamMembers={teamMembers}
+            onUpdateTask={updateTask}
+            onEditTask={(task) => { setEditingItem(task); setShowTaskModal(true); }}
+            onAddTask={() => { setEditingItem(null); setShowTaskModal(true); }}
+          />
+        )}
+        
+        {activeTab === 'gantt' && (
+          <GanttView
+            projects={projects}
+            tasks={tasks}
+            clients={clients}
+            onEditProject={(project) => { setEditingItem(project); setShowProjectModal(true); }}
+            onEditTask={(task) => { setEditingItem(task); setShowTaskModal(true); }}
           />
         )}
         
@@ -377,6 +383,7 @@ export default function ClientProjectManager() {
             onDelete={deleteClient}
             projects={projects}
             tasks={tasks}
+            onNavigate={setActiveTab}
           />
         )}
         
@@ -388,6 +395,7 @@ export default function ClientProjectManager() {
             onAdd={() => { setEditingItem(null); setShowProjectModal(true); }}
             onEdit={(project) => { setEditingItem(project); setShowProjectModal(true); }}
             onDelete={deleteProject}
+            onNavigate={setActiveTab}
           />
         )}
         
@@ -472,7 +480,6 @@ export default function ClientProjectManager() {
         <TeamModal
           member={editingItem}
           onSave={(member) => {
-            console.log('TeamModal onSave called with:', member);
             if (editingItem) {
               updateTeamMember(editingItem.id, member);
             } else {
@@ -488,8 +495,317 @@ export default function ClientProjectManager() {
   );
 }
 
-// Dashboard View Component
-function DashboardView({ clients, projects, tasks, teamMembers }) {
+// Kanban View Component
+function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEditTask, onAddTask }) {
+  const [draggedTask, setDraggedTask] = useState(null);
+  const [dragOverColumn, setDragOverColumn] = useState(null);
+
+  const columns = [
+    { id: 'todo', label: 'To Do', color: 'stone' },
+    { id: 'in-progress', label: 'In Progress', color: 'blue' },
+    { id: 'completed', label: 'Completed', color: 'green' }
+  ];
+
+  const handleDragStart = (e, task) => {
+    setDraggedTask(task);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e, columnId) => {
+    e.preventDefault();
+    setDragOverColumn(columnId);
+  };
+
+  const handleDragLeave = () => {
+    setDragOverColumn(null);
+  };
+
+  const handleDrop = (e, newStatus) => {
+    e.preventDefault();
+    if (draggedTask && draggedTask.status !== newStatus) {
+      onUpdateTask(draggedTask.id, { ...draggedTask, status: newStatus });
+    }
+    setDraggedTask(null);
+    setDragOverColumn(null);
+  };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-3xl font-bold text-stone-900">Kanban Board</h2>
+        <button
+          onClick={onAddTask}
+          className="flex items-center space-x-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+        >
+          <Plus size={20} />
+          <span>Add Task</span>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {columns.map(column => {
+          const columnTasks = tasks.filter(t => t.status === column.id);
+          
+          return (
+            <div
+              key={column.id}
+              className={`kanban-column bg-white rounded-lg border-2 p-4 ${
+                dragOverColumn === column.id ? 'drag-over border-amber-400' : 'border-stone-200'
+              }`}
+              onDragOver={(e) => handleDragOver(e, column.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, column.id)}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-stone-900">{column.label}</h3>
+                <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                  column.color === 'stone' ? 'bg-stone-100 text-stone-700' :
+                  column.color === 'blue' ? 'bg-blue-100 text-blue-700' :
+                  'bg-green-100 text-green-700'
+                }`}>
+                  {columnTasks.length}
+                </span>
+              </div>
+
+              <div className="space-y-3">
+                {columnTasks.map(task => {
+                  const project = projects.find(p => p.id === task.projectId);
+                  const client = clients.find(c => c.id === project?.clientId);
+                  const assignee = teamMembers.find(m => m.id === task.assignedTo);
+                  const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'completed';
+
+                  return (
+                    <div
+                      key={task.id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, task)}
+                      className={`kanban-card bg-stone-50 rounded-lg p-4 border border-stone-200 ${
+                        draggedTask?.id === task.id ? 'dragging' : ''
+                      } ${isOverdue ? 'border-red-300 bg-red-50' : ''}`}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <h4 className="font-semibold text-stone-900 flex-1">{task.title}</h4>
+                        <button
+                          onClick={() => onEditTask(task)}
+                          className="text-stone-400 hover:text-amber-600 transition-colors"
+                        >
+                          <Edit2 size={14} />
+                        </button>
+                      </div>
+
+                      {task.description && (
+                        <p className="text-sm text-stone-600 mb-3 line-clamp-2">{task.description}</p>
+                      )}
+
+                      <div className="space-y-2 text-xs">
+                        {client && (
+                          <div className="flex items-center text-stone-600">
+                            <Users size={12} className="mr-1" />
+                            {client.name}
+                          </div>
+                        )}
+                        {assignee && (
+                          <div className="flex items-center text-stone-600">
+                            <User size={12} className="mr-1" />
+                            {assignee.name}
+                          </div>
+                        )}
+                        {task.dueDate && (
+                          <div className={`flex items-center ${isOverdue ? 'text-red-700 font-semibold' : 'text-stone-600'}`}>
+                            <Calendar size={12} className="mr-1" />
+                            {task.dueDate}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {columnTasks.length === 0 && (
+                  <div className="text-center py-8 text-stone-400 italic">
+                    No tasks yet
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-6 bg-amber-50 border border-amber-200 rounded-lg p-4">
+        <p className="text-sm text-amber-800">
+          <strong>💡 Tip:</strong> Drag and drop tasks between columns to change their status!
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Gantt View Component
+function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
+  const getDateRange = () => {
+    const allDates = [];
+    
+    projects.forEach(p => {
+      if (p.startDate) allDates.push(new Date(p.startDate));
+      if (p.endDate) allDates.push(new Date(p.endDate));
+    });
+    
+    tasks.forEach(t => {
+      if (t.dueDate) allDates.push(new Date(t.dueDate));
+    });
+
+    if (allDates.length === 0) {
+      const today = new Date();
+      const futureDate = new Date(today);
+      futureDate.setMonth(today.getMonth() + 3);
+      return { min: today, max: futureDate };
+    }
+
+    return {
+      min: new Date(Math.min(...allDates)),
+      max: new Date(Math.max(...allDates))
+    };
+  };
+
+  const { min: minDate, max: maxDate } = getDateRange();
+  const daysDiff = Math.ceil((maxDate - minDate) / (1000 * 60 * 60 * 24)) || 90;
+  
+  const getBarPosition = (startDate, endDate) => {
+    if (!startDate || !endDate) return null;
+    
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const startDays = Math.ceil((start - minDate) / (1000 * 60 * 60 * 24));
+    const duration = Math.ceil((end - start) / (1000 * 60 * 60 * 24)) || 1;
+    
+    return {
+      left: `${(startDays / daysDiff) * 100}%`,
+      width: `${(duration / daysDiff) * 100}%`
+    };
+  };
+
+  const activeProjects = projects.filter(p => p.startDate && p.endDate);
+
+  if (activeProjects.length === 0 && tasks.filter(t => t.dueDate).length === 0) {
+    return (
+      <div className="bg-white rounded-lg border border-stone-200 p-12 text-center">
+        <Calendar size={48} className="mx-auto text-stone-300 mb-4" />
+        <h3 className="text-xl font-semibold text-stone-900 mb-2">No timeline data yet</h3>
+        <p className="text-stone-600 mb-4">
+          Add start/end dates to your projects to see them on the Gantt chart.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-3xl font-bold text-stone-900 mb-2">Gantt Chart</h2>
+        <p className="text-stone-600">Timeline view of all projects and tasks</p>
+      </div>
+
+      <div className="bg-white rounded-lg border border-stone-200 p-6 overflow-x-auto">
+        {/* Timeline Header */}
+        <div className="mb-4 flex items-center text-sm text-stone-600">
+          <div className="w-64 font-semibold">Project / Task</div>
+          <div className="flex-1 border-l border-stone-200 pl-4">
+            <div className="flex justify-between">
+              <span>{minDate.toLocaleDateString()}</span>
+              <span>{maxDate.toLocaleDateString()}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Project Bars */}
+        <div className="space-y-3">
+          {activeProjects.map(project => {
+            const client = clients.find(c => c.id === project.clientId);
+            const projectTasks = tasks.filter(t => t.projectId === project.id && t.dueDate);
+            const position = getBarPosition(project.startDate, project.endDate);
+
+            return (
+              <div key={project.id} className="border-b border-stone-100 pb-3">
+                {/* Project Row */}
+                <div className="flex items-center mb-2">
+                  <div className="w-64">
+                    <div className="flex items-center space-x-2">
+                      <FolderKanban size={16} className="text-amber-600" />
+                      <button
+                        onClick={() => onEditProject(project)}
+                        className="font-semibold text-stone-900 hover:text-amber-600 transition-colors text-left"
+                      >
+                        {project.name}
+                      </button>
+                    </div>
+                    {client && (
+                      <div className="text-xs text-stone-500 ml-6">{client.name}</div>
+                    )}
+                  </div>
+                  
+                  <div className="flex-1 border-l border-stone-200 pl-4 relative h-8">
+                    {position && (
+                      <div
+                        className="absolute top-1 h-6 bg-amber-500 rounded flex items-center justify-center text-white text-xs font-medium hover:bg-amber-600 transition-colors cursor-pointer"
+                        style={position}
+                        onClick={() => onEditProject(project)}
+                      >
+                        <span className="px-2 truncate">{project.name}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Task Rows */}
+                {projectTasks.map(task => {
+                  const taskStart = new Date(task.dueDate);
+                  taskStart.setDate(taskStart.getDate() - 1);
+                  const taskPosition = getBarPosition(taskStart.toISOString().split('T')[0], task.dueDate);
+
+                  return (
+                    <div key={task.id} className="flex items-center ml-6">
+                      <div className="w-58">
+                        <div className="flex items-center space-x-2">
+                          <CheckSquare size={14} className="text-blue-600" />
+                          <button
+                            onClick={() => onEditTask(task)}
+                            className="text-sm text-stone-700 hover:text-blue-600 transition-colors text-left"
+                          >
+                            {task.title}
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="flex-1 border-l border-stone-200 pl-4 relative h-6">
+                        {taskPosition && (
+                          <div
+                            className="absolute top-1 h-4 bg-blue-400 rounded hover:bg-blue-500 transition-colors cursor-pointer"
+                            style={taskPosition}
+                            onClick={() => onEditTask(task)}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <p className="text-sm text-blue-800">
+          <strong>💡 Tip:</strong> Add start and end dates to projects to see them on the timeline. Click on any bar to edit!
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Dashboard View Component (Enhanced with navigation)
+function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
   const activeTasks = tasks.filter(t => t.status !== 'completed');
   const upcomingTasks = activeTasks.filter(t => {
     if (!t.dueDate) return false;
@@ -512,25 +828,59 @@ function DashboardView({ clients, projects, tasks, teamMembers }) {
           value={clients.length}
           icon={Users}
           color="amber"
+          onClick={() => onNavigate('clients')}
         />
         <StatCard
           label="Active Projects"
           value={projects.filter(p => p.status !== 'completed').length}
           icon={FolderKanban}
           color="blue"
+          onClick={() => onNavigate('projects')}
         />
         <StatCard
           label="Open Tasks"
           value={activeTasks.length}
           icon={CheckSquare}
           color="green"
+          onClick={() => onNavigate('tasks')}
         />
         <StatCard
           label="Team Members"
           value={teamMembers.length}
           icon={User}
           color="purple"
+          onClick={() => onNavigate('team')}
         />
+      </div>
+
+      {/* Quick Actions */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <button
+          onClick={() => onNavigate('kanban')}
+          className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-md hover:shadow-lg transition-all hover:scale-105"
+        >
+          <Trello size={32} className="mb-2" />
+          <h3 className="text-lg font-bold">Kanban Board</h3>
+          <p className="text-sm text-blue-100 mt-1">Drag & drop task management</p>
+        </button>
+
+        <button
+          onClick={() => onNavigate('gantt')}
+          className="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-md hover:shadow-lg transition-all hover:scale-105"
+        >
+          <BarChart3 size={32} className="mb-2" />
+          <h3 className="text-lg font-bold">Gantt Chart</h3>
+          <p className="text-sm text-purple-100 mt-1">Timeline visualization</p>
+        </button>
+
+        <button
+          onClick={() => onNavigate('tasks')}
+          className="bg-gradient-to-br from-amber-500 to-amber-600 text-white p-6 rounded-lg shadow-md hover:shadow-lg transition-all hover:scale-105"
+        >
+          <CheckSquare size={32} className="mb-2" />
+          <h3 className="text-lg font-bold">All Tasks</h3>
+          <p className="text-sm text-amber-100 mt-1">Comprehensive task list</p>
+        </button>
       </div>
 
       {/* Alerts */}
@@ -538,12 +888,18 @@ function DashboardView({ clients, projects, tasks, teamMembers }) {
         <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
           <div className="flex items-start">
             <AlertCircle className="text-red-600 mt-0.5 mr-3" size={20} />
-            <div>
+            <div className="flex-1">
               <h3 className="font-semibold text-red-900">Overdue Tasks</h3>
               <p className="text-red-700 text-sm mt-1">
                 You have {overdueTasks.length} overdue task{overdueTasks.length !== 1 ? 's' : ''} that need attention.
               </p>
             </div>
+            <button
+              onClick={() => onNavigate('kanban')}
+              className="text-red-600 hover:text-red-800 transition-colors"
+            >
+              <ExternalLink size={18} />
+            </button>
           </div>
         </div>
       )}
@@ -552,12 +908,18 @@ function DashboardView({ clients, projects, tasks, teamMembers }) {
         <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg">
           <div className="flex items-start">
             <Clock className="text-amber-600 mt-0.5 mr-3" size={20} />
-            <div>
+            <div className="flex-1">
               <h3 className="font-semibold text-amber-900">Upcoming Tasks</h3>
               <p className="text-amber-700 text-sm mt-1">
                 {upcomingTasks.length} task{upcomingTasks.length !== 1 ? 's' : ''} due in the next 7 days.
               </p>
             </div>
+            <button
+              onClick={() => onNavigate('kanban')}
+              className="text-amber-600 hover:text-amber-800 transition-colors"
+            >
+              <ExternalLink size={18} />
+            </button>
           </div>
         </div>
       )}
@@ -565,13 +927,21 @@ function DashboardView({ clients, projects, tasks, teamMembers }) {
       {/* Recent Activity */}
       <div className="grid md:grid-cols-2 gap-6">
         <div className="bg-white rounded-lg border border-stone-200 p-6 shadow-sm">
-          <h2 className="text-2xl font-bold text-stone-900 mb-4">Recent Clients</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold text-stone-900">Recent Clients</h2>
+            <button
+              onClick={() => onNavigate('clients')}
+              className="text-amber-600 hover:text-amber-700 transition-colors"
+            >
+              <ExternalLink size={18} />
+            </button>
+          </div>
           {clients.length === 0 ? (
             <p className="text-stone-500 italic">No clients yet. Add your first client to get started!</p>
           ) : (
             <div className="space-y-3">
               {clients.slice(0, 5).map(client => (
-                <div key={client.id} className="flex items-center justify-between p-3 bg-stone-50 rounded-lg">
+                <div key={client.id} className="flex items-center justify-between p-3 bg-stone-50 rounded-lg hover:bg-stone-100 transition-colors cursor-pointer">
                   <div>
                     <div className="font-semibold text-stone-900">{client.name}</div>
                     <div className="text-sm text-stone-600">{client.company}</div>
@@ -586,7 +956,15 @@ function DashboardView({ clients, projects, tasks, teamMembers }) {
         </div>
 
         <div className="bg-white rounded-lg border border-stone-200 p-6 shadow-sm">
-          <h2 className="text-2xl font-bold text-stone-900 mb-4">Active Projects</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold text-stone-900">Active Projects</h2>
+            <button
+              onClick={() => onNavigate('projects')}
+              className="text-amber-600 hover:text-amber-700 transition-colors"
+            >
+              <ExternalLink size={18} />
+            </button>
+          </div>
           {projects.length === 0 ? (
             <p className="text-stone-500 italic">No projects yet. Create your first project!</p>
           ) : (
@@ -594,7 +972,7 @@ function DashboardView({ clients, projects, tasks, teamMembers }) {
               {projects.filter(p => p.status !== 'completed').slice(0, 5).map(project => {
                 const client = clients.find(c => c.id === project.clientId);
                 return (
-                  <div key={project.id} className="flex items-center justify-between p-3 bg-stone-50 rounded-lg">
+                  <div key={project.id} className="flex items-center justify-between p-3 bg-stone-50 rounded-lg hover:bg-stone-100 transition-colors cursor-pointer">
                     <div>
                       <div className="font-semibold text-stone-900">{project.name}</div>
                       <div className="text-sm text-stone-600">{client?.name || 'No client'}</div>
@@ -611,8 +989,8 @@ function DashboardView({ clients, projects, tasks, teamMembers }) {
   );
 }
 
-// Clients View Component
-function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks }) {
+// Clients View Component (Enhanced with navigation)
+function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks, onNavigate }) {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -676,9 +1054,20 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks }) {
                   <p className="text-sm text-stone-600 mb-4">📞 {client.phone}</p>
                 )}
                 
-                <div className="border-t border-stone-200 pt-4 mt-4 flex justify-between text-sm">
-                  <span className="text-stone-600">{clientProjects.length} projects</span>
-                  <span className="text-stone-600">{clientTasks.length} tasks</span>
+                <div className="border-t border-stone-200 pt-4 mt-4">
+                  <div className="flex justify-between text-sm mb-3">
+                    <span className="text-stone-600">{clientProjects.length} projects</span>
+                    <span className="text-stone-600">{clientTasks.length} tasks</span>
+                  </div>
+                  {clientProjects.length > 0 && (
+                    <button
+                      onClick={() => onNavigate('projects')}
+                      className="w-full text-sm text-amber-600 hover:text-amber-700 font-medium flex items-center justify-center space-x-1"
+                    >
+                      <span>View Projects</span>
+                      <ExternalLink size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
             );
@@ -689,8 +1078,8 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks }) {
   );
 }
 
-// Projects View Component
-function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete }) {
+// Projects View Component (Enhanced with navigation)
+function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNavigate }) {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -732,16 +1121,27 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete }) {
                       <StatusBadge status={project.status} />
                     </div>
                     {client && (
-                      <p className="text-stone-600 mb-2">Client: {client.name}</p>
+                      <button
+                        onClick={() => onNavigate('clients')}
+                        className="text-stone-600 hover:text-amber-600 transition-colors mb-2 text-sm flex items-center space-x-1"
+                      >
+                        <Users size={14} />
+                        <span>Client: {client.name}</span>
+                        <ExternalLink size={12} />
+                      </button>
                     )}
                     {project.description && (
                       <p className="text-stone-600 mb-4">{project.description}</p>
                     )}
                     
                     <div className="flex items-center space-x-6 text-sm">
-                      <span className="text-stone-600">
-                        Tasks: {completedTasks.length}/{projectTasks.length} completed
-                      </span>
+                      <button
+                        onClick={() => onNavigate('tasks')}
+                        className="text-stone-600 hover:text-amber-600 transition-colors flex items-center space-x-1"
+                      >
+                        <CheckSquare size={14} />
+                        <span>Tasks: {completedTasks.length}/{projectTasks.length} completed</span>
+                      </button>
                       {project.startDate && (
                         <span className="text-stone-600">Start: {project.startDate}</span>
                       )}
@@ -1010,16 +1410,19 @@ function TeamView({ teamMembers, tasks, onAdd, onEdit, onDelete }) {
 }
 
 // Utility Components
-function StatCard({ label, value, icon: Icon, color }) {
+function StatCard({ label, value, icon: Icon, color, onClick }) {
   const colorClasses = {
-    amber: 'bg-amber-50 text-amber-700 border-amber-200',
-    blue: 'bg-blue-50 text-blue-700 border-blue-200',
-    green: 'bg-green-50 text-green-700 border-green-200',
-    purple: 'bg-purple-50 text-purple-700 border-purple-200'
+    amber: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100',
+    blue: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
+    green: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100',
+    purple: 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
   };
   
   return (
-    <div className={`rounded-lg border p-6 ${colorClasses[color]} shadow-sm`}>
+    <button
+      onClick={onClick}
+      className={`rounded-lg border p-6 ${colorClasses[color]} shadow-sm transition-all hover:shadow-md text-left w-full`}
+    >
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-medium opacity-75">{label}</p>
@@ -1027,7 +1430,7 @@ function StatCard({ label, value, icon: Icon, color }) {
         </div>
         <Icon size={40} className="opacity-50" />
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -1307,7 +1710,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
 
   return (
     <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+      <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
         <h2 className="text-2xl font-bold text-stone-900 mb-4">
           {task ? 'Edit Task' : 'Add New Task'}
         </h2>
@@ -1436,29 +1839,14 @@ function TeamModal({ member, onSave, onClose }) {
     role: '',
     email: ''
   });
-  const [isSaving, setIsSaving] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    console.log('TeamModal handleSubmit called');
-    
     if (!formData.name.trim()) {
       alert('Please enter a team member name');
       return;
     }
-    
-    setIsSaving(true);
-    console.log('Calling onSave with data:', formData);
-    
-    try {
-      await onSave(formData);
-      console.log('onSave completed');
-    } catch (error) {
-      console.error('Error in onSave:', error);
-      alert('Error saving team member. Please check the console.');
-    } finally {
-      setIsSaving(false);
-    }
+    onSave(formData);
   };
 
   return (
@@ -1480,7 +1868,6 @@ function TeamModal({ member, onSave, onClose }) {
               className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
               placeholder="Jane Smith"
               required
-              disabled={isSaving}
             />
           </div>
           
@@ -1494,7 +1881,6 @@ function TeamModal({ member, onSave, onClose }) {
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
               className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
               placeholder="Customer Success Manager"
-              disabled={isSaving}
             />
           </div>
           
@@ -1508,23 +1894,20 @@ function TeamModal({ member, onSave, onClose }) {
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
               className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
               placeholder="jane@company.com"
-              disabled={isSaving}
             />
           </div>
           
           <div className="flex space-x-3 pt-4">
             <button
               type="submit"
-              disabled={isSaving}
-              className="flex-1 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
-              {isSaving ? 'Saving...' : 'Save Team Member'}
+              Save Team Member
             </button>
             <button
               type="button"
               onClick={onClose}
-              disabled={isSaving}
-              className="flex-1 bg-stone-200 hover:bg-stone-300 text-stone-700 px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              className="flex-1 bg-stone-200 hover:bg-stone-300 text-stone-700 px-4 py-2 rounded-lg transition-colors"
             >
               Cancel
             </button>
