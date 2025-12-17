@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: client-success-hub
+    env: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    headers:
+      - path: /*
+        name: Cache-Control
+        value: no-cache
