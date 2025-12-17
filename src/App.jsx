@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink } from 'lucide-react';
+import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X } from 'lucide-react';
 
 export default function ClientProjectManager() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -9,6 +9,7 @@ export default function ClientProjectManager() {
   const [teamMembers, setTeamMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Modal states
   const [showClientModal, setShowClientModal] = useState(false);
@@ -191,6 +192,16 @@ export default function ClientProjectManager() {
     }
   };
 
+  const navigationItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'kanban', label: 'Kanban Board', icon: Trello },
+    { id: 'gantt', label: 'Gantt Chart', icon: BarChart3 },
+    { id: 'clients', label: 'Clients', icon: Users },
+    { id: 'projects', label: 'Projects', icon: FolderKanban },
+    { id: 'tasks', label: 'Tasks', icon: CheckSquare },
+    { id: 'team', label: 'Team', icon: User }
+  ];
+
   if (loading) {
     return (
       <div className="min-h-screen bg-stone-50 flex items-center justify-center">
@@ -221,20 +232,29 @@ export default function ClientProjectManager() {
           box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.15);
         }
         
-        .tab-button {
+        .sidebar-item {
           position: relative;
-          transition: all 0.3s ease;
+          transition: all 0.2s ease;
         }
         
-        .tab-button.active::after {
+        .sidebar-item:hover {
+          background: rgba(217, 119, 6, 0.1);
+          transform: translateX(4px);
+        }
+        
+        .sidebar-item.active {
+          background: linear-gradient(90deg, rgba(217, 119, 6, 0.15), rgba(245, 158, 11, 0.15));
+          border-right: 3px solid #d97706;
+        }
+        
+        .sidebar-item.active::before {
           content: '';
           position: absolute;
-          bottom: 0;
           left: 0;
-          right: 0;
-          height: 3px;
-          background: linear-gradient(90deg, #d97706, #f59e0b);
-          border-radius: 3px 3px 0 0;
+          top: 0;
+          bottom: 0;
+          width: 4px;
+          background: linear-gradient(180deg, #d97706, #f59e0b);
         }
         
         .status-badge {
@@ -304,124 +324,153 @@ export default function ClientProjectManager() {
       )}
 
       {/* Header */}
-      <header className="bg-white border-b-2 border-amber-600 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6 py-6">
-          <h1 className="text-4xl font-bold text-stone-900 mb-2">Client Success Hub</h1>
-          <p className="text-stone-600">Manage your clients, projects, and tasks in one place</p>
+      <header className="bg-white border-b-2 border-amber-600 shadow-sm fixed top-0 left-0 right-0 z-30">
+        <div className="px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <button
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="lg:hidden text-stone-600 hover:text-amber-600 transition-colors"
+            >
+              {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
+            </button>
+            <div>
+              <h1 className="text-2xl font-bold text-stone-900">Client Success Hub</h1>
+              <p className="text-sm text-stone-600 hidden sm:block">Manage your clients, projects, and tasks</p>
+            </div>
+          </div>
+          <div className="text-sm text-stone-500">
+            {clients.length} clients • {projects.length} projects • {tasks.length} tasks
+          </div>
         </div>
       </header>
 
-      {/* Navigation */}
-      <nav className="bg-white border-b border-stone-200 sticky top-0 z-40 shadow-sm">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="flex space-x-1">
-            {[
-              { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-              { id: 'kanban', label: 'Kanban', icon: Trello },
-              { id: 'gantt', label: 'Gantt', icon: BarChart3 },
-              { id: 'clients', label: 'Clients', icon: Users },
-              { id: 'projects', label: 'Projects', icon: FolderKanban },
-              { id: 'tasks', label: 'Tasks', icon: CheckSquare },
-              { id: 'team', label: 'Team', icon: User }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`tab-button flex items-center space-x-2 px-6 py-4 font-medium transition-colors ${
-                  activeTab === tab.id
-                    ? 'active text-amber-700 bg-amber-50'
-                    : 'text-stone-600 hover:text-stone-900 hover:bg-stone-50'
-                }`}
-              >
-                <tab.icon size={18} />
-                <span>{tab.label}</span>
-              </button>
-            ))}
+      {/* Sidebar */}
+      <aside className={`fixed top-[73px] left-0 bottom-0 w-64 bg-white border-r border-stone-200 shadow-lg transition-transform duration-300 z-20 ${
+        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      } lg:translate-x-0`}>
+        <nav className="py-6">
+          {navigationItems.map(item => (
+            <button
+              key={item.id}
+              onClick={() => {
+                setActiveTab(item.id);
+                if (window.innerWidth < 1024) setSidebarOpen(false);
+              }}
+              className={`sidebar-item w-full flex items-center space-x-3 px-6 py-3 text-left ${
+                activeTab === item.id
+                  ? 'active text-amber-700 font-semibold'
+                  : 'text-stone-600 hover:text-stone-900'
+              }`}
+            >
+              <item.icon size={20} />
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+
+        {/* Sidebar Footer */}
+        <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-stone-200">
+          <div className="text-xs text-stone-500">
+            <p className="font-semibold mb-1">Quick Stats</p>
+            <p>Active: {tasks.filter(t => t.status !== 'completed').length} tasks</p>
+            <p>Team: {teamMembers.length} members</p>
           </div>
         </div>
-      </nav>
+      </aside>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {activeTab === 'dashboard' && (
-          <DashboardView 
-            clients={clients}
-            projects={projects}
-            tasks={tasks}
-            teamMembers={teamMembers}
-            onNavigate={setActiveTab}
-          />
-        )}
-        
-        {activeTab === 'kanban' && (
-          <KanbanView
-            tasks={tasks}
-            projects={projects}
-            clients={clients}
-            teamMembers={teamMembers}
-            onUpdateTask={updateTask}
-            onEditTask={(task) => { setEditingItem(task); setShowTaskModal(true); }}
-            onAddTask={() => { setEditingItem(null); setShowTaskModal(true); }}
-          />
-        )}
-        
-        {activeTab === 'gantt' && (
-          <GanttView
-            projects={projects}
-            tasks={tasks}
-            clients={clients}
-            onEditProject={(project) => { setEditingItem(project); setShowProjectModal(true); }}
-            onEditTask={(task) => { setEditingItem(task); setShowTaskModal(true); }}
-          />
-        )}
-        
-        {activeTab === 'clients' && (
-          <ClientsView
-            clients={clients}
-            onAdd={() => { setEditingItem(null); setShowClientModal(true); }}
-            onEdit={(client) => { setEditingItem(client); setShowClientModal(true); }}
-            onDelete={deleteClient}
-            projects={projects}
-            tasks={tasks}
-            onNavigate={setActiveTab}
-          />
-        )}
-        
-        {activeTab === 'projects' && (
-          <ProjectsView
-            projects={projects}
-            clients={clients}
-            tasks={tasks}
-            onAdd={() => { setEditingItem(null); setShowProjectModal(true); }}
-            onEdit={(project) => { setEditingItem(project); setShowProjectModal(true); }}
-            onDelete={deleteProject}
-            onNavigate={setActiveTab}
-          />
-        )}
-        
-        {activeTab === 'tasks' && (
-          <TasksView
-            tasks={tasks}
-            projects={projects}
-            clients={clients}
-            teamMembers={teamMembers}
-            onAdd={() => { setEditingItem(null); setShowTaskModal(true); }}
-            onEdit={(task) => { setEditingItem(task); setShowTaskModal(true); }}
-            onDelete={deleteTask}
-            onUpdateStatus={updateTask}
-          />
-        )}
-        
-        {activeTab === 'team' && (
-          <TeamView
-            teamMembers={teamMembers}
-            tasks={tasks}
-            onAdd={() => { setEditingItem(null); setShowTeamModal(true); }}
-            onEdit={(member) => { setEditingItem(member); setShowTeamModal(true); }}
-            onDelete={deleteTeamMember}
-          />
-        )}
+      <main className={`pt-[73px] transition-all duration-300 ${
+        sidebarOpen ? 'lg:ml-64' : 'ml-0'
+      }`}>
+        <div className="p-6">
+          {activeTab === 'dashboard' && (
+            <DashboardView 
+              clients={clients}
+              projects={projects}
+              tasks={tasks}
+              teamMembers={teamMembers}
+              onNavigate={setActiveTab}
+            />
+          )}
+          
+          {activeTab === 'kanban' && (
+            <KanbanView
+              tasks={tasks}
+              projects={projects}
+              clients={clients}
+              teamMembers={teamMembers}
+              onUpdateTask={updateTask}
+              onEditTask={(task) => { setEditingItem(task); setShowTaskModal(true); }}
+              onAddTask={() => { setEditingItem(null); setShowTaskModal(true); }}
+            />
+          )}
+          
+          {activeTab === 'gantt' && (
+            <GanttView
+              projects={projects}
+              tasks={tasks}
+              clients={clients}
+              onEditProject={(project) => { setEditingItem(project); setShowProjectModal(true); }}
+              onEditTask={(task) => { setEditingItem(task); setShowTaskModal(true); }}
+            />
+          )}
+          
+          {activeTab === 'clients' && (
+            <ClientsView
+              clients={clients}
+              onAdd={() => { setEditingItem(null); setShowClientModal(true); }}
+              onEdit={(client) => { setEditingItem(client); setShowClientModal(true); }}
+              onDelete={deleteClient}
+              projects={projects}
+              tasks={tasks}
+              onNavigate={setActiveTab}
+            />
+          )}
+          
+          {activeTab === 'projects' && (
+            <ProjectsView
+              projects={projects}
+              clients={clients}
+              tasks={tasks}
+              onAdd={() => { setEditingItem(null); setShowProjectModal(true); }}
+              onEdit={(project) => { setEditingItem(project); setShowProjectModal(true); }}
+              onDelete={deleteProject}
+              onNavigate={setActiveTab}
+            />
+          )}
+          
+          {activeTab === 'tasks' && (
+            <TasksView
+              tasks={tasks}
+              projects={projects}
+              clients={clients}
+              teamMembers={teamMembers}
+              onAdd={() => { setEditingItem(null); setShowTaskModal(true); }}
+              onEdit={(task) => { setEditingItem(task); setShowTaskModal(true); }}
+              onDelete={deleteTask}
+              onUpdateStatus={updateTask}
+            />
+          )}
+          
+          {activeTab === 'team' && (
+            <TeamView
+              teamMembers={teamMembers}
+              tasks={tasks}
+              onAdd={() => { setEditingItem(null); setShowTeamModal(true); }}
+              onEdit={(member) => { setEditingItem(member); setShowTeamModal(true); }}
+              onDelete={deleteTeamMember}
+            />
+          )}
+        </div>
       </main>
+
+      {/* Mobile Overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 z-10 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
       {/* Modals */}
       {showClientModal && (
@@ -495,6 +544,7 @@ export default function ClientProjectManager() {
   );
 }
 
+// ... (rest of the components from the previous version remain exactly the same)
 // Kanban View Component
 function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEditTask, onAddTask }) {
   const [draggedTask, setDraggedTask] = useState(null);
