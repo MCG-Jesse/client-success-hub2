@@ -423,6 +423,7 @@ export default function ClientProjectManager() {
               onDelete={deleteClient}
               projects={projects}
               tasks={tasks}
+              teamMembers={teamMembers}
               onNavigate={setActiveTab}
             />
           )}
@@ -476,6 +477,7 @@ export default function ClientProjectManager() {
       {showClientModal && (
         <ClientModal
           client={editingItem}
+          teamMembers={teamMembers}
           onSave={(client) => {
             if (editingItem) {
               updateClient(editingItem.id, client);
@@ -1040,7 +1042,7 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
 }
 
 // Clients View Component (Enhanced with navigation)
-function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks, onNavigate }) {
+function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks, teamMembers, onNavigate }) {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -1073,6 +1075,7 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks, onNavi
             const clientTasks = tasks.filter(t => 
               clientProjects.some(p => p.id === t.projectId)
             );
+            const assignedMember = teamMembers.find(m => m.id === client.assignedTo);
             
             return (
               <div key={client.id} className="bg-white rounded-lg border border-stone-200 p-6 shadow-sm task-card">
@@ -1097,12 +1100,23 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks, onNavi
                   </div>
                 </div>
                 
-                {client.email && (
-                  <p className="text-sm text-stone-600 mb-2">✉️ {client.email}</p>
-                )}
-                {client.phone && (
-                  <p className="text-sm text-stone-600 mb-4">📞 {client.phone}</p>
-                )}
+                <div className="space-y-2 mb-4">
+                  {client.email && (
+                    <p className="text-sm text-stone-600">✉️ {client.email}</p>
+                  )}
+                  {client.phone && (
+                    <p className="text-sm text-stone-600">📞 {client.phone}</p>
+                  )}
+                  {assignedMember && (
+                    <p className="text-sm text-stone-600">👤 {assignedMember.name}</p>
+                  )}
+                  {client.populationSize && (
+                    <p className="text-sm text-stone-600">👥 Population: {client.populationSize}</p>
+                  )}
+                  {client.yearEndDate && (
+                    <p className="text-sm text-stone-600">📅 Year-End: {client.yearEndDate}</p>
+                  )}
+                </div>
                 
                 <div className="border-t border-stone-200 pt-4 mt-4">
                   <div className="flex justify-between text-sm mb-3">
@@ -1504,12 +1518,15 @@ function StatusBadge({ status }) {
 }
 
 // Modal Components
-function ClientModal({ client, onSave, onClose }) {
+function ClientModal({ client, teamMembers, onSave, onClose }) {
   const [formData, setFormData] = useState(client || {
     name: '',
     company: '',
     email: '',
-    phone: ''
+    phone: '',
+    assignedTo: '',
+    populationSize: '',
+    yearEndDate: ''
   });
 
   const handleSubmit = (e) => {
@@ -1523,63 +1540,107 @@ function ClientModal({ client, onSave, onClose }) {
 
   return (
     <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+      <div className="modal-content bg-white rounded-lg shadow-xl max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto">
         <h2 className="text-2xl font-bold text-stone-900 mb-4">
           {client ? 'Edit Client' : 'Add New Client'}
         </h2>
         
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">
-              Client Name *
-            </label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              placeholder="John Doe"
-              required
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">
-              Company
-            </label>
-            <input
-              type="text"
-              value={formData.company}
-              onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              placeholder="Acme Corp"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">
-              Email
-            </label>
-            <input
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              placeholder="john@acme.com"
-            />
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-stone-700 mb-1">
-              Phone
-            </label>
-            <input
-              type="tel"
-              value={formData.phone}
-              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
-              placeholder="(555) 123-4567"
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Client Name *
+              </label>
+              <input
+                type="text"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                placeholder="John Doe"
+                required
+              />
+            </div>
+            
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Company
+              </label>
+              <input
+                type="text"
+                value={formData.company}
+                onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                placeholder="Acme Corp"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Email
+              </label>
+              <input
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                placeholder="john@acme.com"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Phone
+              </label>
+              <input
+                type="tel"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                placeholder="(555) 123-4567"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Assigned Team Member
+              </label>
+              <select
+                value={formData.assignedTo}
+                onChange={(e) => setFormData({ ...formData, assignedTo: e.target.value })}
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              >
+                <option value="">Unassigned</option>
+                {teamMembers.map(member => (
+                  <option key={member.id} value={member.id}>{member.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Population Size
+              </label>
+              <input
+                type="text"
+                value={formData.populationSize}
+                onChange={(e) => setFormData({ ...formData, populationSize: e.target.value })}
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                placeholder="e.g., 50,000"
+              />
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Year-End Date
+              </label>
+              <input
+                type="date"
+                value={formData.yearEndDate}
+                onChange={(e) => setFormData({ ...formData, yearEndDate: e.target.value })}
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+              <p className="text-xs text-stone-500 mt-1">Fiscal year-end date for this client</p>
+            </div>
           </div>
           
           <div className="flex space-x-3 pt-4">
