@@ -888,7 +888,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
   );
 }
 
-// Gantt View Component
+// Gantt View Component - Modernized
 function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
   const getDateRange = () => {
     const allDates = [];
@@ -918,6 +918,33 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
   const { min: minDate, max: maxDate } = getDateRange();
   const daysDiff = Math.ceil((maxDate - minDate) / (1000 * 60 * 60 * 24)) || 90;
   
+  // Generate month markers
+  const generateMonthMarkers = () => {
+    const markers = [];
+    const current = new Date(minDate);
+    
+    while (current <= maxDate) {
+      const monthStart = new Date(current.getFullYear(), current.getMonth(), 1);
+      const monthEnd = new Date(current.getFullYear(), current.getMonth() + 1, 0);
+      
+      const startDays = Math.max(0, Math.ceil((monthStart - minDate) / (1000 * 60 * 60 * 24)));
+      const endDays = Math.min(daysDiff, Math.ceil((monthEnd - minDate) / (1000 * 60 * 60 * 24)));
+      const duration = endDays - startDays;
+      
+      if (duration > 0) {
+        markers.push({
+          month: monthStart.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }),
+          left: `${(startDays / daysDiff) * 100}%`,
+          width: `${(duration / daysDiff) * 100}%`
+        });
+      }
+      
+      current.setMonth(current.getMonth() + 1);
+    }
+    
+    return markers;
+  };
+  
   const getBarPosition = (startDate, endDate) => {
     if (!startDate || !endDate) return null;
     
@@ -932,15 +959,41 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
     };
   };
 
+  // Calculate progress for project based on tasks
+  const getProjectProgress = (projectId) => {
+    const projectTasks = tasks.filter(t => t.projectId === projectId);
+    if (projectTasks.length === 0) return 0;
+    const completed = projectTasks.filter(t => t.status === 'completed').length;
+    return Math.round((completed / projectTasks.length) * 100);
+  };
+
+  // Get today marker position
+  const getTodayPosition = () => {
+    const today = new Date();
+    const todayDays = Math.ceil((today - minDate) / (1000 * 60 * 60 * 24));
+    if (todayDays < 0 || todayDays > daysDiff) return null;
+    return `${(todayDays / daysDiff) * 100}%`;
+  };
+
+  const monthMarkers = generateMonthMarkers();
+  const todayPosition = getTodayPosition();
   const activeProjects = projects.filter(p => p.startDate && p.endDate);
+
+  // Status colors
+  const statusColors = {
+    'planning': 'bg-purple-500',
+    'active': 'bg-green-500',
+    'on-hold': 'bg-yellow-500',
+    'completed': 'bg-gray-400'
+  };
 
   if (activeProjects.length === 0 && tasks.filter(t => t.dueDate).length === 0) {
     return (
-      <div className="bg-white rounded-lg border border-stone-200 p-12 text-center">
-        <Calendar size={48} className="mx-auto text-stone-300 mb-4" />
-        <h3 className="text-xl font-semibold text-stone-900 mb-2">No timeline data yet</h3>
-        <p className="text-stone-600 mb-4">
-          Add start/end dates to your projects to see them on the Gantt chart.
+      <div className="bg-white rounded-lg border border-gray-200 p-12 text-center shadow-sm">
+        <Calendar size={48} className="mx-auto text-gray-300 mb-4" />
+        <h3 className="text-xl font-semibold text-gray-900 mb-2">No timeline data yet</h3>
+        <p className="text-gray-600 mb-4">
+          Add start/end dates to your projects to visualize them on the Gantt chart.
         </p>
       </div>
     );
@@ -949,102 +1002,189 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-3xl font-bold text-stone-900 mb-2">Gantt Chart</h2>
-        <p className="text-stone-600">Timeline view of all projects and tasks</p>
+        <h2 className="text-3xl font-bold text-gray-900 mb-2">Gantt Chart</h2>
+        <p className="text-gray-600">Visual timeline of all projects and tasks</p>
       </div>
 
-      <div className="bg-white rounded-lg border border-stone-200 p-6 overflow-x-auto">
-        {/* Timeline Header */}
-        <div className="mb-4 flex items-center text-sm text-stone-600">
-          <div className="w-64 font-semibold">Project / Task</div>
-          <div className="flex-1 border-l border-stone-200 pl-4">
-            <div className="flex justify-between">
-              <span>{minDate.toLocaleDateString()}</span>
-              <span>{maxDate.toLocaleDateString()}</span>
+      {/* Legend */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6 shadow-sm">
+        <div className="flex flex-wrap items-center gap-6 text-sm">
+          <div className="flex items-center space-x-2">
+            <div className="w-6 h-4 bg-gradient-to-r from-blue-500 to-blue-600 rounded"></div>
+            <span className="text-gray-700">Project</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-6 h-3 bg-blue-300 rounded"></div>
+            <span className="text-gray-700">Task</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-6 h-4 bg-gradient-to-r from-purple-500 to-purple-600 rounded"></div>
+            <span className="text-gray-700">Planning</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-6 h-4 bg-gradient-to-r from-green-500 to-green-600 rounded"></div>
+            <span className="text-gray-700">Active</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-6 h-4 bg-gradient-to-r from-yellow-500 to-yellow-600 rounded"></div>
+            <span className="text-gray-700">On Hold</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-6 bg-red-500 rounded"></div>
+            <span className="text-gray-700">Today</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        {/* Timeline Header with Months */}
+        <div className="bg-gradient-to-r from-gray-50 to-gray-100 border-b border-gray-200 p-4">
+          <div className="flex items-center">
+            <div className="w-72 font-bold text-gray-900 text-sm">Project / Task</div>
+            <div className="flex-1 pl-4">
+              <div className="relative h-12 border border-gray-300 rounded bg-white">
+                {monthMarkers.map((marker, idx) => (
+                  <div
+                    key={idx}
+                    className="absolute top-0 h-full border-r border-gray-200 flex items-center justify-center"
+                    style={{ left: marker.left, width: marker.width }}
+                  >
+                    <span className="text-xs font-semibold text-gray-700">{marker.month}</span>
+                  </div>
+                ))}
+                {/* Today marker */}
+                {todayPosition && (
+                  <div
+                    className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-10"
+                    style={{ left: todayPosition }}
+                  >
+                    <div className="absolute -top-1 -left-1 w-2 h-2 bg-red-500 rounded-full"></div>
+                    <div className="absolute -bottom-1 -left-1 w-2 h-2 bg-red-500 rounded-full"></div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
         {/* Project Bars */}
-        <div className="space-y-3">
-          {activeProjects.map(project => {
-            const client = clients.find(c => c.id === project.clientId);
-            const projectTasks = tasks.filter(t => t.projectId === project.id && t.dueDate);
-            const position = getBarPosition(project.startDate, project.endDate);
+        <div className="p-4">
+          <div className="space-y-4">
+            {activeProjects.map(project => {
+              const client = clients.find(c => c.id === project.clientId);
+              const projectTasks = tasks.filter(t => t.projectId === project.id && t.dueDate);
+              const position = getBarPosition(project.startDate, project.endDate);
+              const progress = getProjectProgress(project.id);
+              const statusColor = statusColors[project.status] || 'bg-blue-500';
 
-            return (
-              <div key={project.id} className="border-b border-stone-100 pb-3">
-                {/* Project Row */}
-                <div className="flex items-center mb-2">
-                  <div className="w-64">
-                    <div className="flex items-center space-x-2">
-                      <FolderKanban size={16} className="text-blue-600" />
-                      <button
-                        onClick={() => onEditProject(project)}
-                        className="font-semibold text-stone-900 hover:text-blue-600 transition-colors text-left"
-                      >
-                        {project.name}
-                      </button>
+              return (
+                <div key={project.id} className="border-l-4 border-blue-500 pl-4 bg-gray-50 rounded-r-lg py-3">
+                  {/* Project Row */}
+                  <div className="flex items-center mb-3">
+                    <div className="w-64">
+                      <div className="flex items-center space-x-2 mb-1">
+                        <FolderKanban size={18} className="text-blue-600" />
+                        <button
+                          onClick={() => onEditProject(project)}
+                          className="font-bold text-gray-900 hover:text-blue-600 transition-colors text-left"
+                        >
+                          {project.name}
+                        </button>
+                      </div>
+                      {client && (
+                        <div className="text-xs text-gray-600 ml-7">{client.name}</div>
+                      )}
+                      <div className="text-xs text-gray-500 ml-7 mt-1">
+                        {progress}% complete • {projectTasks.length} tasks
+                      </div>
                     </div>
-                    {client && (
-                      <div className="text-xs text-stone-500 ml-6">{client.name}</div>
-                    )}
-                  </div>
-                  
-                  <div className="flex-1 border-l border-stone-200 pl-4 relative h-8">
-                    {position && (
-                      <div
-                        className="absolute top-1 h-6 bg-blue-500 rounded flex items-center justify-center text-white text-xs font-medium hover:bg-blue-600 transition-colors cursor-pointer"
-                        style={position}
-                        onClick={() => onEditProject(project)}
-                      >
-                        <span className="px-2 truncate">{project.name}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Task Rows */}
-                {projectTasks.map(task => {
-                  const taskStart = new Date(task.dueDate);
-                  taskStart.setDate(taskStart.getDate() - 1);
-                  const taskPosition = getBarPosition(taskStart.toISOString().split('T')[0], task.dueDate);
-
-                  return (
-                    <div key={task.id} className="flex items-center ml-6">
-                      <div className="w-58">
-                        <div className="flex items-center space-x-2">
-                          <CheckSquare size={14} className="text-blue-600" />
-                          <button
-                            onClick={() => onEditTask(task)}
-                            className="text-sm text-stone-700 hover:text-blue-600 transition-colors text-left"
-                          >
-                            {task.title}
-                          </button>
-                        </div>
-                      </div>
-                      
-                      <div className="flex-1 border-l border-stone-200 pl-4 relative h-6">
-                        {taskPosition && (
+                    
+                    <div className="flex-1 pl-4 relative h-12">
+                      {position && (
+                        <div className="relative">
+                          {/* Project bar with gradient */}
                           <div
-                            className="absolute top-1 h-4 bg-blue-400 rounded hover:bg-blue-500 transition-colors cursor-pointer"
-                            style={taskPosition}
-                            onClick={() => onEditTask(task)}
-                          />
-                        )}
-                      </div>
+                            className={`absolute top-2 h-8 bg-gradient-to-r ${statusColor.replace('bg-', 'from-')} ${statusColor.replace('bg-', 'to-').replace('500', '600')} rounded-lg shadow-md hover:shadow-lg transition-all cursor-pointer overflow-hidden`}
+                            style={position}
+                            onClick={() => onEditProject(project)}
+                          >
+                            {/* Progress bar inside */}
+                            <div 
+                              className="absolute top-0 left-0 h-full bg-white bg-opacity-30"
+                              style={{ width: `${progress}%` }}
+                            ></div>
+                            {/* Project name and dates */}
+                            <div className="relative h-full flex items-center justify-between px-3 text-white text-xs font-semibold">
+                              <span className="truncate">{project.name}</span>
+                              <span className="ml-2 opacity-90">{progress}%</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+                  </div>
+
+                  {/* Task Rows */}
+                  {projectTasks.length > 0 && (
+                    <div className="space-y-2 ml-4">
+                      {projectTasks.map(task => {
+                        const taskStart = new Date(task.dueDate);
+                        taskStart.setDate(taskStart.getDate() - 3); // Show 3-day task duration
+                        const taskPosition = getBarPosition(taskStart.toISOString().split('T')[0], task.dueDate);
+                        const isCompleted = task.status === 'completed';
+                        const isOverdue = new Date(task.dueDate) < new Date() && !isCompleted;
+
+                        return (
+                          <div key={task.id} className="flex items-center">
+                            <div className="w-60">
+                              <div className="flex items-center space-x-2">
+                                <CheckSquare size={14} className={isCompleted ? 'text-green-600' : 'text-gray-400'} />
+                                <button
+                                  onClick={() => onEditTask(task)}
+                                  className="text-sm text-gray-700 hover:text-blue-600 transition-colors text-left truncate"
+                                >
+                                  {task.title}
+                                </button>
+                              </div>
+                            </div>
+                            
+                            <div className="flex-1 pl-4 relative h-7">
+                              {taskPosition && (
+                                <div
+                                  className={`absolute top-1.5 h-4 rounded shadow hover:shadow-md transition-all cursor-pointer ${
+                                    isCompleted 
+                                      ? 'bg-green-400' 
+                                      : isOverdue 
+                                      ? 'bg-red-400' 
+                                      : 'bg-blue-300'
+                                  }`}
+                                  style={taskPosition}
+                                  onClick={() => onEditTask(task)}
+                                  title={`${task.title} - Due: ${task.dueDate}`}
+                                >
+                                  {isCompleted && (
+                                    <div className="h-full flex items-center justify-center text-white">
+                                      <CheckCircle size={10} />
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       </div>
 
       <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
         <p className="text-sm text-blue-800">
-          <strong>💡 Tip:</strong> Add start and end dates to projects to see them on the timeline. Click on any bar to edit!
+          <strong>💡 Tip:</strong> Project bars show progress based on task completion. The red line marks today's date. Click any bar to edit!
         </p>
       </div>
     </div>
