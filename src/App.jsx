@@ -1385,30 +1385,86 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNav
   );
 }
 
-// Tasks View Component
+// Tasks View Component - Grouped by Client
 function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDelete, onUpdateStatus }) {
   const [filterStatus, setFilterStatus] = useState('all');
+  const [expandedClients, setExpandedClients] = useState({});
   
   const filteredTasks = filterStatus === 'all' 
     ? tasks 
     : tasks.filter(t => t.status === filterStatus);
 
+  // Group tasks by client
+  const tasksByClient = {};
+  
+  filteredTasks.forEach(task => {
+    const project = projects.find(p => p.id === task.projectId);
+    const clientId = project?.clientId || 'no-client';
+    
+    if (!tasksByClient[clientId]) {
+      tasksByClient[clientId] = [];
+    }
+    tasksByClient[clientId].push(task);
+  });
+
+  // Get client objects for sorting
+  const clientGroups = Object.keys(tasksByClient).map(clientId => {
+    if (clientId === 'no-client') {
+      return {
+        id: 'no-client',
+        name: 'No Client Assigned',
+        tasks: tasksByClient[clientId]
+      };
+    }
+    const client = clients.find(c => c.id === clientId);
+    return {
+      id: clientId,
+      name: client?.name || 'Unknown Client',
+      client: client,
+      tasks: tasksByClient[clientId]
+    };
+  }).sort((a, b) => {
+    if (a.id === 'no-client') return 1;
+    if (b.id === 'no-client') return -1;
+    return a.name.localeCompare(b.name);
+  });
+
+  const toggleClient = (clientId) => {
+    setExpandedClients(prev => ({
+      ...prev,
+      [clientId]: !prev[clientId]
+    }));
+  };
+
+  // Expand all by default
+  useEffect(() => {
+    const allExpanded = {};
+    clientGroups.forEach(group => {
+      allExpanded[group.id] = true;
+    });
+    setExpandedClients(allExpanded);
+  }, [tasks.length, filterStatus]);
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
-        <div className="flex items-center space-x-4">
-          <h2 className="text-3xl font-bold text-stone-900">Tasks</h2>
-          <select
-            value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">All Tasks</option>
-            <option value="todo">To Do</option>
-            <option value="in-progress">In Progress</option>
-            <option value="completed">Completed</option>
-          </select>
+        <div>
+          <h2 className="text-3xl font-bold text-gray-900 mb-2">Tasks by Client</h2>
+          <p className="text-gray-600">Organized by client for easy management</p>
         </div>
+      </div>
+
+      <div className="flex justify-between items-center mb-6 bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+        <select
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+          className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="all">All Tasks</option>
+          <option value="todo">To Do</option>
+          <option value="in-progress">In Progress</option>
+          <option value="completed">Completed</option>
+        </select>
         <button
           onClick={onAdd}
           className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
@@ -1419,12 +1475,12 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
       </div>
 
       {filteredTasks.length === 0 ? (
-        <div className="bg-white rounded-lg border border-stone-200 p-12 text-center">
-          <CheckSquare size={48} className="mx-auto text-stone-300 mb-4" />
-          <h3 className="text-xl font-semibold text-stone-900 mb-2">
+        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center shadow-sm">
+          <CheckSquare size={48} className="mx-auto text-gray-300 mb-4" />
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">
             {filterStatus === 'all' ? 'No tasks yet' : `No ${filterStatus.replace('-', ' ')} tasks`}
           </h3>
-          <p className="text-stone-600 mb-4">Create your first task to get started.</p>
+          <p className="text-gray-600 mb-4">Create your first task to get started.</p>
           <button
             onClick={onAdd}
             className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
@@ -1434,107 +1490,152 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredTasks.map(task => {
-            const project = projects.find(p => p.id === task.projectId);
-            const client = clients.find(c => c.id === project?.clientId);
-            const assignee = teamMembers.find(m => m.id === task.assignedTo);
-            const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'completed';
+          {clientGroups.map(group => {
+            const isExpanded = expandedClients[group.id];
+            const completedCount = group.tasks.filter(t => t.status === 'completed').length;
             
             return (
-              <div 
-                key={task.id} 
-                className={`bg-white rounded-lg border p-6 shadow-sm task-card ${
-                  isOverdue ? 'border-red-300 bg-red-50' : 'border-stone-200'
-                }`}
-              >
-                <div className="flex justify-between items-start">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-3 mb-2">
-                      <h3 className="text-xl font-bold text-stone-900">{task.title}</h3>
-                      <StatusBadge status={task.status} />
-                      {isOverdue && (
-                        <span className="px-2 py-1 bg-red-600 text-white text-xs rounded-full font-medium">
-                          OVERDUE
-                        </span>
-                      )}
-                    </div>
-                    
-                    {task.description && (
-                      <p className="text-stone-600 mb-3">{task.description}</p>
-                    )}
-                    
-                    <div className="flex flex-wrap items-center gap-4 text-sm">
-                      {project && (
-                        <span className="text-stone-600">
-                          📁 {project.name}
-                        </span>
-                      )}
-                      {client && (
-                        <span className="text-stone-600">
-                          👤 {client.name}
-                        </span>
-                      )}
-                      {assignee && (
-                        <span className="text-stone-600">
-                          ✋ {assignee.name}
-                        </span>
-                      )}
-                      {task.dueDate && (
-                        <span className={isOverdue ? 'text-red-700 font-semibold' : 'text-stone-600'}>
-                          📅 Due: {task.dueDate}
-                        </span>
-                      )}
-                    </div>
-                    
-                    <div className="mt-4 flex space-x-2">
-                      <button
-                        onClick={() => onUpdateStatus(task.id, { ...task, status: 'todo' })}
-                        className={`px-3 py-1 rounded text-sm transition-colors ${
-                          task.status === 'todo'
-                            ? 'bg-stone-700 text-white'
-                            : 'bg-stone-100 text-stone-700 hover:bg-stone-200'
-                        }`}
-                      >
-                        To Do
-                      </button>
-                      <button
-                        onClick={() => onUpdateStatus(task.id, { ...task, status: 'in-progress' })}
-                        className={`px-3 py-1 rounded text-sm transition-colors ${
-                          task.status === 'in-progress'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
-                        }`}
-                      >
-                        In Progress
-                      </button>
-                      <button
-                        onClick={() => onUpdateStatus(task.id, { ...task, status: 'completed' })}
-                        className={`px-3 py-1 rounded text-sm transition-colors ${
-                          task.status === 'completed'
-                            ? 'bg-green-600 text-white'
-                            : 'bg-green-100 text-green-700 hover:bg-green-200'
-                        }`}
-                      >
-                        Completed
-                      </button>
+              <div key={group.id} className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+                {/* Client Header */}
+                <button
+                  onClick={() => toggleClient(group.id)}
+                  className="w-full px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+                >
+                  <div className="flex items-center space-x-4">
+                    {isExpanded ? <ChevronDown size={20} className="text-gray-600" /> : <ChevronRight size={20} className="text-gray-600" />}
+                    <div className="flex items-center space-x-3">
+                      <div className={`w-3 h-3 rounded-full ${group.id === 'no-client' ? 'bg-gray-400' : 'bg-blue-500'}`}></div>
+                      <div className="text-left">
+                        <h3 className="text-lg font-bold text-gray-900">{group.name}</h3>
+                        {group.client && group.client.company && (
+                          <p className="text-sm text-gray-600">{group.client.company}</p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  
-                  <div className="flex space-x-2 ml-4">
-                    <button
-                      onClick={() => onEdit(task)}
-                      className="text-stone-600 hover:text-blue-600 transition-colors"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button
-                      onClick={() => onDelete(task.id)}
-                      className="text-stone-600 hover:text-red-600 transition-colors"
-                    >
-                      <Trash2 size={18} />
-                    </button>
+                  <div className="flex items-center space-x-4">
+                    <span className="text-sm text-gray-600">
+                      {completedCount}/{group.tasks.length} completed
+                    </span>
+                    <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-semibold">
+                      {group.tasks.length} {group.tasks.length === 1 ? 'task' : 'tasks'}
+                    </span>
                   </div>
-                </div>
+                </button>
+
+                {/* Tasks List */}
+                {isExpanded && (
+                  <div className="border-t border-gray-200 bg-gray-50">
+                    <div className="p-4 space-y-3">
+                      {group.tasks.map(task => {
+                        const project = projects.find(p => p.id === task.projectId);
+                        const assignee = teamMembers.find(m => m.id === task.assignedTo);
+                        const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'completed';
+                        
+                        return (
+                          <div 
+                            key={task.id} 
+                            className={`bg-white rounded-lg border p-4 shadow-sm hover:shadow-md transition-all ${
+                              isOverdue ? 'border-red-300 bg-red-50' : 'border-gray-200'
+                            }`}
+                          >
+                            <div className="flex justify-between items-start">
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-3 mb-2">
+                                  <h4 className="text-lg font-bold text-gray-900">{task.title}</h4>
+                                  <StatusBadge status={task.status} />
+                                  {isOverdue && (
+                                    <span className="px-2 py-1 bg-red-600 text-white text-xs rounded-full font-medium">
+                                      OVERDUE
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                {task.description && (
+                                  <p className="text-gray-600 mb-3 text-sm">{task.description}</p>
+                                )}
+                                
+                                <div className="flex flex-wrap items-center gap-3 text-sm">
+                                  {project && (
+                                    <span className="text-gray-600 flex items-center space-x-1">
+                                      <FolderKanban size={14} />
+                                      <span>{project.name}</span>
+                                    </span>
+                                  )}
+                                  {assignee && (
+                                    <span className="text-gray-600 flex items-center space-x-1">
+                                      <User size={14} />
+                                      <span>{assignee.name}</span>
+                                    </span>
+                                  )}
+                                  {task.dueDate && (
+                                    <span className={`flex items-center space-x-1 ${isOverdue ? 'text-red-700 font-semibold' : 'text-gray-600'}`}>
+                                      <Calendar size={14} />
+                                      <span>{task.dueDate}</span>
+                                    </span>
+                                  )}
+                                  {task.phase && (
+                                    <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full font-medium">
+                                      {task.phaseName}
+                                    </span>
+                                  )}
+                                </div>
+                                
+                                <div className="mt-3 flex space-x-2">
+                                  <button
+                                    onClick={() => onUpdateStatus(task.id, { ...task, status: 'todo' })}
+                                    className={`px-3 py-1 rounded text-xs transition-colors ${
+                                      task.status === 'todo'
+                                        ? 'bg-gray-700 text-white'
+                                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                    }`}
+                                  >
+                                    To Do
+                                  </button>
+                                  <button
+                                    onClick={() => onUpdateStatus(task.id, { ...task, status: 'in-progress' })}
+                                    className={`px-3 py-1 rounded text-xs transition-colors ${
+                                      task.status === 'in-progress'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                    }`}
+                                  >
+                                    In Progress
+                                  </button>
+                                  <button
+                                    onClick={() => onUpdateStatus(task.id, { ...task, status: 'completed' })}
+                                    className={`px-3 py-1 rounded text-xs transition-colors ${
+                                      task.status === 'completed'
+                                        ? 'bg-green-600 text-white'
+                                        : 'bg-green-100 text-green-700 hover:bg-green-200'
+                                    }`}
+                                  >
+                                    Completed
+                                  </button>
+                                </div>
+                              </div>
+                              
+                              <div className="flex space-x-2 ml-4">
+                                <button
+                                  onClick={() => onEdit(task)}
+                                  className="text-gray-600 hover:text-blue-600 transition-colors"
+                                >
+                                  <Edit2 size={16} />
+                                </button>
+                                <button
+                                  onClick={() => onDelete(task.id)}
+                                  className="text-gray-600 hover:text-red-600 transition-colors"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })}
