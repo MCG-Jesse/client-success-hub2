@@ -1,5 +1,81 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X } from 'lucide-react';
+import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, List } from 'lucide-react';
+
+// PBB Template Definition
+const PBB_TEMPLATE = {
+  phases: [
+    {
+      id: 'phase1',
+      name: 'Pre-Planning and Preparation',
+      order: 1,
+      tasks: [
+        'Pre-Planning Meeting',
+        'Send User Template',
+        'Provide Access to the Tools',
+        'Provide Welcome Email',
+        'Budget Data Request',
+        'Budget Data Upload',
+        'Super User Training',
+        'Schedule Project Kick-Off Meeting'
+      ]
+    },
+    {
+      id: 'phase2',
+      name: 'PBB Data Development',
+      order: 2,
+      sections: [
+        {
+          id: 'inventory',
+          name: 'Program Inventory',
+          tasks: [
+            'Run Predicted Inventory',
+            'Program Inventory Training',
+            'Program Inventory Office Hours',
+            'Draft Program Inventory Submission',
+            'Review and Feedback',
+            'Final Program Inventory Submission'
+          ]
+        },
+        {
+          id: 'cost-allocation',
+          name: 'Program Cost Allocation',
+          tasks: [
+            'Run Predicted Cost Allocations',
+            'Cost Allocation Training',
+            'Cost Allocation Office Hours',
+            'Draft Cost Allocation Submission',
+            'Review and Feedback',
+            'Final Cost Allocation Submission'
+          ]
+        },
+        {
+          id: 'scoring',
+          name: 'Program Scoring',
+          tasks: [
+            'Run Predicted Scores',
+            'Program Scoring Training',
+            'Program Scoring Office Hours',
+            'Draft Program Scoring Review',
+            'Peer Review Training',
+            'Peer Review',
+            'Final Program Scoring Submission'
+          ]
+        }
+      ]
+    },
+    {
+      id: 'phase3',
+      name: 'Insights and Analysis',
+      order: 3,
+      tasks: [
+        'Produce Insight Report',
+        'Produce Benchmark Analysis',
+        'Produce PBB Impact Matrix',
+        'Load Data into PBB Apps'
+      ]
+    }
+  ]
+};
 
 export default function ClientProjectManager() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -16,6 +92,7 @@ export default function ClientProjectManager() {
   const [showProjectModal, setShowProjectModal] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
+  const [showProjectDetailModal, setShowProjectDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
 
   // Storage helper - uses localStorage
@@ -34,6 +111,56 @@ export default function ClientProjectManager() {
       localStorage.removeItem(key);
       return { key, deleted: true };
     }
+  };
+
+  // Generate PBB template tasks for a project
+  const generatePBBTasks = (projectId) => {
+    const newTasks = [];
+    const baseTime = Date.now();
+
+    PBB_TEMPLATE.phases.forEach((phase, phaseIndex) => {
+      if (phase.sections) {
+        // Phase 2 with sections
+        phase.sections.forEach((section, sectionIndex) => {
+          section.tasks.forEach((taskTitle, taskIndex) => {
+            newTasks.push({
+              id: `${baseTime}-${phaseIndex}-${sectionIndex}-${taskIndex}`,
+              title: taskTitle,
+              description: '',
+              projectId: projectId,
+              assignedTo: '',
+              status: 'todo',
+              dueDate: '',
+              phase: phase.id,
+              phaseName: phase.name,
+              section: section.id,
+              sectionName: section.name,
+              order: taskIndex
+            });
+          });
+        });
+      } else {
+        // Phase 1 or 3 without sections
+        phase.tasks.forEach((taskTitle, taskIndex) => {
+          newTasks.push({
+            id: `${baseTime}-${phaseIndex}-${taskIndex}`,
+            title: taskTitle,
+            description: '',
+            projectId: projectId,
+            assignedTo: '',
+            status: 'todo',
+            dueDate: '',
+            phase: phase.id,
+            phaseName: phase.name,
+            section: null,
+            sectionName: null,
+            order: taskIndex
+          });
+        });
+      }
+    });
+
+    return newTasks;
   };
 
   // Show notification
@@ -136,10 +263,19 @@ export default function ClientProjectManager() {
   };
 
   // Project functions
-  const addProject = async (project) => {
-    const newProject = { ...project, id: Date.now().toString() };
+  const addProject = async (project, usePBBTemplate = false) => {
+    const newProject = { ...project, id: Date.now().toString(), usePBBTemplate };
     const success = await saveProjects([...projects, newProject]);
-    if (success) showNotification('Project added successfully!');
+    
+    if (success && usePBBTemplate) {
+      // Generate template tasks
+      const templateTasks = generatePBBTasks(newProject.id);
+      const allTasks = [...tasks, ...templateTasks];
+      await saveTasks(allTasks);
+      showNotification(`Project created with ${templateTasks.length} PBB template tasks!`);
+    } else if (success) {
+      showNotification('Project added successfully!');
+    }
   };
 
   const updateProject = async (id, updatedProject) => {
@@ -495,11 +631,11 @@ export default function ClientProjectManager() {
         <ProjectModal
           project={editingItem}
           clients={clients}
-          onSave={(project) => {
+          onSave={(project, usePBBTemplate) => {
             if (editingItem) {
               updateProject(editingItem.id, project);
             } else {
-              addProject(project);
+              addProject(project, usePBBTemplate);
             }
             setShowProjectModal(false);
             setEditingItem(null);
@@ -1673,6 +1809,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
     startDate: '',
     endDate: ''
   });
+  const [usePBBTemplate, setUsePBBTemplate] = useState(false);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -1680,12 +1817,12 @@ function ProjectModal({ project, clients, onSave, onClose }) {
       alert('Please enter a project name');
       return;
     }
-    onSave(formData);
+    onSave(formData, usePBBTemplate);
   };
 
   return (
     <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+      <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
         <h2 className="text-2xl font-bold text-stone-900 mb-4">
           {project ? 'Edit Project' : 'Add New Project'}
         </h2>
@@ -1775,6 +1912,25 @@ function ProjectModal({ project, clients, onSave, onClose }) {
               />
             </div>
           </div>
+
+          {!project && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <label className="flex items-center space-x-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={usePBBTemplate}
+                  onChange={(e) => setUsePBBTemplate(e.target.checked)}
+                  className="w-5 h-5 text-amber-600 border-stone-300 rounded focus:ring-2 focus:ring-amber-500"
+                />
+                <div>
+                  <span className="font-semibold text-stone-900">Use PBB Template</span>
+                  <p className="text-xs text-stone-600 mt-1">
+                    Automatically create 30+ standard PBB tasks across 3 phases
+                  </p>
+                </div>
+              </label>
+            </div>
+          )}
           
           <div className="flex space-x-3 pt-4">
             <button
@@ -1804,11 +1960,16 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
     projectId: '',
     assignedTo: '',
     status: 'todo',
-    dueDate: ''
+    dueDate: '',
+    phase: '',
+    phaseName: '',
+    section: '',
+    sectionName: ''
   });
 
   const selectedProject = projects.find(p => p.id === formData.projectId);
   const selectedClient = selectedProject ? clients.find(c => c.id === selectedProject.clientId) : null;
+  const isPBBProject = selectedProject?.usePBBTemplate;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -1818,6 +1979,31 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
     }
     onSave(formData);
   };
+
+  const handlePhaseChange = (e) => {
+    const phaseId = e.target.value;
+    const phase = PBB_TEMPLATE.phases.find(p => p.id === phaseId);
+    setFormData({
+      ...formData,
+      phase: phaseId,
+      phaseName: phase?.name || '',
+      section: '',
+      sectionName: ''
+    });
+  };
+
+  const handleSectionChange = (e) => {
+    const sectionId = e.target.value;
+    const phase = PBB_TEMPLATE.phases.find(p => p.id === formData.phase);
+    const section = phase?.sections?.find(s => s.id === sectionId);
+    setFormData({
+      ...formData,
+      section: sectionId,
+      sectionName: section?.name || ''
+    });
+  };
+
+  const currentPhase = PBB_TEMPLATE.phases.find(p => p.id === formData.phase);
 
   return (
     <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -1869,6 +2055,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
                 return (
                   <option key={project.id} value={project.id}>
                     {project.name} {client ? `(${client.name})` : ''}
+                    {project.usePBBTemplate ? ' (PBB)' : ''}
                   </option>
                 );
               })}
@@ -1877,6 +2064,44 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
               <p className="text-xs text-stone-500 mt-1">Client: {selectedClient.name}</p>
             )}
           </div>
+
+          {isPBBProject && (
+            <>
+              <div>
+                <label className="block text-sm font-medium text-stone-700 mb-1">
+                  Phase (Optional)
+                </label>
+                <select
+                  value={formData.phase}
+                  onChange={handlePhaseChange}
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value="">No specific phase</option>
+                  {PBB_TEMPLATE.phases.map(phase => (
+                    <option key={phase.id} value={phase.id}>{phase.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {currentPhase?.sections && (
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1">
+                    Section (Optional)
+                  </label>
+                  <select
+                    value={formData.section}
+                    onChange={handleSectionChange}
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    <option value="">No specific section</option>
+                    {currentPhase.sections.map(section => (
+                      <option key={section.id} value={section.id}>{section.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </>
+          )}
           
           <div>
             <label className="block text-sm font-medium text-stone-700 mb-1">
