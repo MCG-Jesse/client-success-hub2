@@ -328,15 +328,30 @@ export default function ClientProjectManager() {
     }
   };
 
+  const [expandedMenuItems, setExpandedMenuItems] = useState({ projects: true });
+
   const navigationItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'kanban', label: 'Kanban Board', icon: Trello },
-    { id: 'gantt', label: 'Gantt Chart', icon: BarChart3 },
     { id: 'clients', label: 'Clients', icon: Users },
-    { id: 'projects', label: 'Projects', icon: FolderKanban },
-    { id: 'tasks', label: 'Tasks', icon: CheckSquare },
+    { 
+      id: 'projects', 
+      label: 'Projects', 
+      icon: FolderKanban,
+      subItems: [
+        { id: 'kanban', label: 'Kanban Board', icon: Trello },
+        { id: 'gantt', label: 'Gantt Chart', icon: BarChart3 },
+        { id: 'tasks', label: 'Tasks', icon: CheckSquare }
+      ]
+    },
     { id: 'team', label: 'Team', icon: User }
   ];
+
+  const toggleMenuItem = (itemId) => {
+    setExpandedMenuItems(prev => ({
+      ...prev,
+      [itemId]: !prev[itemId]
+    }));
+  };
 
   if (loading) {
     return (
@@ -491,27 +506,66 @@ export default function ClientProjectManager() {
       } lg:translate-x-0`}>
         <nav className="py-6">
           {navigationItems.map(item => (
-            <button
-              key={item.id}
-              onClick={() => {
-                setActiveTab(item.id);
-                if (window.innerWidth < 1024) setSidebarOpen(false);
-              }}
-              className={`sidebar-item w-full flex items-center space-x-3 px-6 py-3 text-left ${
-                activeTab === item.id
-                  ? 'active text-blue-700 font-semibold'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-            >
-              <item.icon size={20} />
-              <span>{item.label}</span>
-            </button>
+            <div key={item.id}>
+              {/* Main navigation item */}
+              <button
+                onClick={() => {
+                  if (item.subItems) {
+                    // For items with sub-items, navigate to main item AND toggle submenu
+                    setActiveTab(item.id);
+                    toggleMenuItem(item.id);
+                    if (window.innerWidth < 1024) setSidebarOpen(false);
+                  } else {
+                    setActiveTab(item.id);
+                    if (window.innerWidth < 1024) setSidebarOpen(false);
+                  }
+                }}
+                className={`sidebar-item w-full flex items-center justify-between px-6 py-3 text-left ${
+                  (activeTab === item.id || (item.subItems && item.subItems.some(sub => sub.id === activeTab)))
+                    ? 'active text-blue-700 font-semibold'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <div className="flex items-center space-x-3">
+                  <item.icon size={20} />
+                  <span>{item.label}</span>
+                </div>
+                {item.subItems && (
+                  expandedMenuItems[item.id] 
+                    ? <ChevronDown size={16} className="text-gray-400" />
+                    : <ChevronRight size={16} className="text-gray-400" />
+                )}
+              </button>
+
+              {/* Sub-items (if any) */}
+              {item.subItems && expandedMenuItems[item.id] && (
+                <div className="bg-gray-50">
+                  {item.subItems.map(subItem => (
+                    <button
+                      key={subItem.id}
+                      onClick={() => {
+                        setActiveTab(subItem.id);
+                        if (window.innerWidth < 1024) setSidebarOpen(false);
+                      }}
+                      className={`w-full flex items-center space-x-3 pl-14 pr-6 py-2.5 text-left transition-colors ${
+                        activeTab === subItem.id
+                          ? 'bg-blue-100 text-blue-700 font-semibold border-l-4 border-blue-600'
+                          : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 border-l-4 border-transparent'
+                      }`}
+                    >
+                      <subItem.icon size={18} />
+                      <span className="text-sm">{subItem.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           ))}
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-stone-200">
-          <div className="text-xs text-stone-500">
+        <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-gray-200">
+          <div className="text-xs text-gray-500">
             <p className="font-semibold mb-1">Quick Stats</p>
             <p>Active: {tasks.filter(t => t.status !== 'completed').length} tasks</p>
             <p>Team: {teamMembers.length} members</p>
