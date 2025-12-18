@@ -341,31 +341,34 @@ export default function ClientProjectManager() {
   if (loading) {
     return (
       <div className="min-h-screen bg-stone-50 flex items-center justify-center">
-        <div className="text-amber-600 text-xl font-serif">Loading your workspace...</div>
+        <div className="text-blue-600 text-xl font-serif">Loading your workspace...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-stone-50">
+    <div className="min-h-screen bg-gray-50">
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=DM+Sans:wght@400;500;600&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
         
         * {
-          font-family: 'DM Sans', sans-serif;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         }
         
         h1, h2, h3, h4 {
-          font-family: 'Crimson Pro', serif;
+          font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
+          font-weight: 700;
         }
         
         .task-card {
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          border: 1px solid #e5e7eb;
         }
         
         .task-card:hover {
           transform: translateY(-2px);
-          box-shadow: 0 12px 24px -8px rgba(0, 0, 0, 0.15);
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+          border-color: #d1d5db;
         }
         
         .sidebar-item {
@@ -374,13 +377,15 @@ export default function ClientProjectManager() {
         }
         
         .sidebar-item:hover {
-          background: rgba(217, 119, 6, 0.1);
+          background: rgba(59, 130, 246, 0.08);
           transform: translateX(4px);
         }
         
         .sidebar-item.active {
-          background: linear-gradient(90deg, rgba(217, 119, 6, 0.15), rgba(245, 158, 11, 0.15));
-          border-right: 3px solid #d97706;
+          background: linear-gradient(90deg, rgba(59, 130, 246, 0.12), rgba(96, 165, 250, 0.08));
+          border-right: 3px solid #3b82f6;
+          color: #1e40af;
+          font-weight: 600;
         }
         
         .sidebar-item.active::before {
@@ -390,7 +395,7 @@ export default function ClientProjectManager() {
           top: 0;
           bottom: 0;
           width: 4px;
-          background: linear-gradient(180deg, #d97706, #f59e0b);
+          background: linear-gradient(180deg, #3b82f6, #2563eb);
         }
         
         .status-badge {
@@ -460,28 +465,28 @@ export default function ClientProjectManager() {
       )}
 
       {/* Header */}
-      <header className="bg-white border-b-2 border-amber-600 shadow-sm fixed top-0 left-0 right-0 z-30">
-        <div className="px-6 py-4 flex items-center justify-between">
+      <header className="bg-gradient-to-r from-blue-700 via-blue-600 to-blue-700 shadow-lg fixed top-0 left-0 right-0 z-30">
+        <div className="px-6 py-5 flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="lg:hidden text-stone-600 hover:text-amber-600 transition-colors"
+              className="lg:hidden text-white hover:text-blue-100 transition-colors"
             >
               {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-stone-900">Client Success Hub</h1>
-              <p className="text-sm text-stone-600 hidden sm:block">Manage your clients, projects, and tasks</p>
+              <h1 className="text-2xl font-bold text-white">Client Success Hub</h1>
+              <p className="text-sm text-blue-100 hidden sm:block">Priority Based Budgeting Customer Success Platform</p>
             </div>
           </div>
-          <div className="text-sm text-stone-500">
+          <div className="text-sm text-blue-100 font-medium">
             {clients.length} clients • {projects.length} projects • {tasks.length} tasks
           </div>
         </div>
       </header>
 
       {/* Sidebar */}
-      <aside className={`fixed top-[73px] left-0 bottom-0 w-64 bg-white border-r border-stone-200 shadow-lg transition-transform duration-300 z-20 ${
+      <aside className={`fixed top-[85px] left-0 bottom-0 w-64 bg-white border-r border-gray-200 shadow-xl transition-transform duration-300 z-20 ${
         sidebarOpen ? 'translate-x-0' : '-translate-x-full'
       } lg:translate-x-0`}>
         <nav className="py-6">
@@ -494,7 +499,7 @@ export default function ClientProjectManager() {
               }}
               className={`sidebar-item w-full flex items-center space-x-3 px-6 py-3 text-left ${
                 activeTab === item.id
-                  ? 'active text-amber-700 font-semibold'
+                  ? 'active text-blue-700 font-semibold'
                   : 'text-stone-600 hover:text-stone-900'
               }`}
             >
@@ -515,10 +520,10 @@ export default function ClientProjectManager() {
       </aside>
 
       {/* Main Content */}
-      <main className={`pt-[73px] transition-all duration-300 ${
+      <main className={`pt-[85px] transition-all duration-300 ${
         sidebarOpen ? 'lg:ml-64' : 'ml-0'
       }`}>
-        <div className="p-6">
+        <div className="p-8 bg-gray-50 min-h-screen">
           {activeTab === 'dashboard' && (
             <DashboardView 
               clients={clients}
@@ -723,7 +728,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
         <h2 className="text-3xl font-bold text-stone-900">Kanban Board</h2>
         <button
           onClick={onAddTask}
-          className="flex items-center space-x-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
         >
           <Plus size={20} />
           <span>Add Task</span>
@@ -738,7 +743,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
             <div
               key={column.id}
               className={`kanban-column bg-white rounded-lg border-2 p-4 ${
-                dragOverColumn === column.id ? 'drag-over border-amber-400' : 'border-stone-200'
+                dragOverColumn === column.id ? 'drag-over border-blue-400' : 'border-stone-200'
               }`}
               onDragOver={(e) => handleDragOver(e, column.id)}
               onDragLeave={handleDragLeave}
@@ -775,7 +780,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
                         <h4 className="font-semibold text-stone-900 flex-1">{task.title}</h4>
                         <button
                           onClick={() => onEditTask(task)}
-                          className="text-stone-400 hover:text-amber-600 transition-colors"
+                          className="text-stone-400 hover:text-blue-600 transition-colors"
                         >
                           <Edit2 size={14} />
                         </button>
@@ -820,8 +825,8 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
         })}
       </div>
 
-      <div className="mt-6 bg-amber-50 border border-amber-200 rounded-lg p-4">
-        <p className="text-sm text-amber-800">
+      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <p className="text-sm text-blue-800">
           <strong>💡 Tip:</strong> Drag and drop tasks between columns to change their status!
         </p>
       </div>
@@ -919,10 +924,10 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
                 <div className="flex items-center mb-2">
                   <div className="w-64">
                     <div className="flex items-center space-x-2">
-                      <FolderKanban size={16} className="text-amber-600" />
+                      <FolderKanban size={16} className="text-blue-600" />
                       <button
                         onClick={() => onEditProject(project)}
-                        className="font-semibold text-stone-900 hover:text-amber-600 transition-colors text-left"
+                        className="font-semibold text-stone-900 hover:text-blue-600 transition-colors text-left"
                       >
                         {project.name}
                       </button>
@@ -935,7 +940,7 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
                   <div className="flex-1 border-l border-stone-200 pl-4 relative h-8">
                     {position && (
                       <div
-                        className="absolute top-1 h-6 bg-amber-500 rounded flex items-center justify-center text-white text-xs font-medium hover:bg-amber-600 transition-colors cursor-pointer"
+                        className="absolute top-1 h-6 bg-blue-500 rounded flex items-center justify-center text-white text-xs font-medium hover:bg-blue-600 transition-colors cursor-pointer"
                         style={position}
                         onClick={() => onEditProject(project)}
                       >
@@ -1008,28 +1013,33 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-3xl font-bold text-gray-900 mb-2">Dashboard</h2>
+        <p className="text-gray-600">Overview of your client success operations</p>
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard
           label="Active Clients"
           value={clients.length}
           icon={Users}
-          color="amber"
+          color="blue"
           onClick={() => onNavigate('clients')}
         />
         <StatCard
           label="Active Projects"
           value={projects.filter(p => p.status !== 'completed').length}
           icon={FolderKanban}
-          color="blue"
+          color="green"
           onClick={() => onNavigate('projects')}
         />
         <StatCard
           label="Open Tasks"
           value={activeTasks.length}
           icon={CheckSquare}
-          color="green"
+          color="purple"
           onClick={() => onNavigate('tasks')}
         />
         <StatCard
@@ -1063,11 +1073,11 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
 
         <button
           onClick={() => onNavigate('tasks')}
-          className="bg-gradient-to-br from-amber-500 to-amber-600 text-white p-6 rounded-lg shadow-md hover:shadow-lg transition-all hover:scale-105"
+          className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-md hover:shadow-lg transition-all hover:scale-105"
         >
           <CheckSquare size={32} className="mb-2" />
           <h3 className="text-lg font-bold">All Tasks</h3>
-          <p className="text-sm text-amber-100 mt-1">Comprehensive task list</p>
+          <p className="text-sm text-blue-100 mt-1">Comprehensive task list</p>
         </button>
       </div>
 
@@ -1093,18 +1103,18 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
       )}
 
       {upcomingTasks.length > 0 && (
-        <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded-r-lg">
+        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
           <div className="flex items-start">
-            <Clock className="text-amber-600 mt-0.5 mr-3" size={20} />
+            <Clock className="text-blue-600 mt-0.5 mr-3" size={20} />
             <div className="flex-1">
-              <h3 className="font-semibold text-amber-900">Upcoming Tasks</h3>
-              <p className="text-amber-700 text-sm mt-1">
+              <h3 className="font-semibold text-blue-900">Upcoming Tasks</h3>
+              <p className="text-blue-700 text-sm mt-1">
                 {upcomingTasks.length} task{upcomingTasks.length !== 1 ? 's' : ''} due in the next 7 days.
               </p>
             </div>
             <button
               onClick={() => onNavigate('kanban')}
-              className="text-amber-600 hover:text-amber-800 transition-colors"
+              className="text-blue-600 hover:text-blue-800 transition-colors"
             >
               <ExternalLink size={18} />
             </button>
@@ -1119,7 +1129,7 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
             <h2 className="text-2xl font-bold text-stone-900">Recent Clients</h2>
             <button
               onClick={() => onNavigate('clients')}
-              className="text-amber-600 hover:text-amber-700 transition-colors"
+              className="text-blue-600 hover:text-blue-700 transition-colors"
             >
               <ExternalLink size={18} />
             </button>
@@ -1148,7 +1158,7 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
             <h2 className="text-2xl font-bold text-stone-900">Active Projects</h2>
             <button
               onClick={() => onNavigate('projects')}
-              className="text-amber-600 hover:text-amber-700 transition-colors"
+              className="text-blue-600 hover:text-blue-700 transition-colors"
             >
               <ExternalLink size={18} />
             </button>
@@ -1185,7 +1195,7 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks, teamMe
         <h2 className="text-3xl font-bold text-stone-900">Clients</h2>
         <button
           onClick={onAdd}
-          className="flex items-center space-x-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
         >
           <Plus size={20} />
           <span>Add Client</span>
@@ -1199,7 +1209,7 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks, teamMe
           <p className="text-stone-600 mb-4">Start by adding your first client to track their projects and tasks.</p>
           <button
             onClick={onAdd}
-            className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-2 rounded-lg transition-colors"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
             Add Your First Client
           </button>
@@ -1223,7 +1233,7 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks, teamMe
                   <div className="flex space-x-2">
                     <button
                       onClick={() => onEdit(client)}
-                      className="text-stone-600 hover:text-amber-600 transition-colors"
+                      className="text-stone-600 hover:text-blue-600 transition-colors"
                     >
                       <Edit2 size={18} />
                     </button>
@@ -1262,7 +1272,7 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks, teamMe
                   {clientProjects.length > 0 && (
                     <button
                       onClick={() => onNavigate('projects')}
-                      className="w-full text-sm text-amber-600 hover:text-amber-700 font-medium flex items-center justify-center space-x-1"
+                      className="w-full text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center justify-center space-x-1"
                     >
                       <span>View Projects</span>
                       <ExternalLink size={14} />
@@ -1286,7 +1296,7 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNav
         <h2 className="text-3xl font-bold text-stone-900">Projects</h2>
         <button
           onClick={onAdd}
-          className="flex items-center space-x-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
         >
           <Plus size={20} />
           <span>Add Project</span>
@@ -1300,7 +1310,7 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNav
           <p className="text-stone-600 mb-4">Create your first project to start managing tasks.</p>
           <button
             onClick={onAdd}
-            className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-2 rounded-lg transition-colors"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
             Create Your First Project
           </button>
@@ -1323,7 +1333,7 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNav
                     {client && (
                       <button
                         onClick={() => onNavigate('clients')}
-                        className="text-stone-600 hover:text-amber-600 transition-colors mb-2 text-sm flex items-center space-x-1"
+                        className="text-stone-600 hover:text-blue-600 transition-colors mb-2 text-sm flex items-center space-x-1"
                       >
                         <Users size={14} />
                         <span>Client: {client.name}</span>
@@ -1337,7 +1347,7 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNav
                     <div className="flex items-center space-x-6 text-sm">
                       <button
                         onClick={() => onNavigate('tasks')}
-                        className="text-stone-600 hover:text-amber-600 transition-colors flex items-center space-x-1"
+                        className="text-stone-600 hover:text-blue-600 transition-colors flex items-center space-x-1"
                       >
                         <CheckSquare size={14} />
                         <span>Tasks: {completedTasks.length}/{projectTasks.length} completed</span>
@@ -1354,7 +1364,7 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNav
                   <div className="flex space-x-2 ml-4">
                     <button
                       onClick={() => onEdit(project)}
-                      className="text-stone-600 hover:text-amber-600 transition-colors"
+                      className="text-stone-600 hover:text-blue-600 transition-colors"
                     >
                       <Edit2 size={18} />
                     </button>
@@ -1391,7 +1401,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+            className="px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="all">All Tasks</option>
             <option value="todo">To Do</option>
@@ -1401,7 +1411,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
         </div>
         <button
           onClick={onAdd}
-          className="flex items-center space-x-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
         >
           <Plus size={20} />
           <span>Add Task</span>
@@ -1417,7 +1427,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
           <p className="text-stone-600 mb-4">Create your first task to get started.</p>
           <button
             onClick={onAdd}
-            className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-2 rounded-lg transition-colors"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
             Create Your First Task
           </button>
@@ -1513,7 +1523,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
                   <div className="flex space-x-2 ml-4">
                     <button
                       onClick={() => onEdit(task)}
-                      className="text-stone-600 hover:text-amber-600 transition-colors"
+                      className="text-stone-600 hover:text-blue-600 transition-colors"
                     >
                       <Edit2 size={18} />
                     </button>
@@ -1542,7 +1552,7 @@ function TeamView({ teamMembers, tasks, onAdd, onEdit, onDelete }) {
         <h2 className="text-3xl font-bold text-stone-900">Team Members</h2>
         <button
           onClick={onAdd}
-          className="flex items-center space-x-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
         >
           <Plus size={20} />
           <span>Add Team Member</span>
@@ -1556,7 +1566,7 @@ function TeamView({ teamMembers, tasks, onAdd, onEdit, onDelete }) {
           <p className="text-stone-600 mb-4">Add your team members to assign tasks.</p>
           <button
             onClick={onAdd}
-            className="bg-amber-600 hover:bg-amber-700 text-white px-6 py-2 rounded-lg transition-colors"
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
             Add Your First Team Member
           </button>
@@ -1577,7 +1587,7 @@ function TeamView({ teamMembers, tasks, onAdd, onEdit, onDelete }) {
                   <div className="flex space-x-2">
                     <button
                       onClick={() => onEdit(member)}
-                      className="text-stone-600 hover:text-amber-600 transition-colors"
+                      className="text-stone-600 hover:text-blue-600 transition-colors"
                     >
                       <Edit2 size={18} />
                     </button>
@@ -1612,23 +1622,30 @@ function TeamView({ teamMembers, tasks, onAdd, onEdit, onDelete }) {
 // Utility Components
 function StatCard({ label, value, icon: Icon, color, onClick }) {
   const colorClasses = {
-    amber: 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100',
-    blue: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
-    green: 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100',
-    purple: 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
+    blue: 'bg-white border-l-4 border-l-blue-500 hover:shadow-lg',
+    green: 'bg-white border-l-4 border-l-green-500 hover:shadow-lg',
+    purple: 'bg-white border-l-4 border-l-purple-500 hover:shadow-lg',
+    orange: 'bg-white border-l-4 border-l-orange-500 hover:shadow-lg'
+  };
+  
+  const iconColorClasses = {
+    blue: 'text-blue-500',
+    green: 'text-green-500', 
+    purple: 'text-purple-500',
+    orange: 'text-orange-500'
   };
   
   return (
     <button
       onClick={onClick}
-      className={`rounded-lg border p-6 ${colorClasses[color]} shadow-sm transition-all hover:shadow-md text-left w-full`}
+      className={`rounded-lg border border-gray-200 p-6 ${colorClasses[color]} shadow-md transition-all text-left w-full`}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium opacity-75">{label}</p>
-          <p className="text-3xl font-bold mt-2">{value}</p>
+          <p className="text-sm font-medium text-gray-600 uppercase tracking-wide">{label}</p>
+          <p className="text-4xl font-bold text-gray-900 mt-2">{value}</p>
         </div>
-        <Icon size={40} className="opacity-50" />
+        <Icon size={36} className={`${iconColorClasses[color]} opacity-60`} />
       </div>
     </button>
   );
@@ -1691,7 +1708,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="John Doe"
                 required
               />
@@ -1705,7 +1722,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="text"
                 value={formData.company}
                 onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="Acme Corp"
               />
             </div>
@@ -1718,7 +1735,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="email"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="john@acme.com"
               />
             </div>
@@ -1731,7 +1748,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="tel"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="(555) 123-4567"
               />
             </div>
@@ -1743,7 +1760,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
               <select
                 value={formData.assignedTo}
                 onChange={(e) => setFormData({ ...formData, assignedTo: e.target.value })}
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">Unassigned</option>
                 {teamMembers.map(member => (
@@ -1760,7 +1777,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="text"
                 value={formData.populationSize}
                 onChange={(e) => setFormData({ ...formData, populationSize: e.target.value })}
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g., 50,000"
               />
             </div>
@@ -1773,7 +1790,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="date"
                 value={formData.yearEndDate}
                 onChange={(e) => setFormData({ ...formData, yearEndDate: e.target.value })}
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
               <p className="text-xs text-stone-500 mt-1">Fiscal year-end date for this client</p>
             </div>
@@ -1782,7 +1799,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
           <div className="flex space-x-3 pt-4">
             <button
               type="submit"
-              className="flex-1 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
               Save Client
             </button>
@@ -1836,7 +1853,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Q4 Implementation"
               required
             />
@@ -1849,7 +1866,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Project details..."
               rows="3"
             />
@@ -1862,7 +1879,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
             <select
               value={formData.clientId}
               onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Select a client (optional)</option>
               {clients.map(client => (
@@ -1878,7 +1895,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
             <select
               value={formData.status}
               onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="planning">Planning</option>
               <option value="active">Active</option>
@@ -1896,7 +1913,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
                 type="date"
                 value={formData.startDate}
                 onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
             
@@ -1908,19 +1925,19 @@ function ProjectModal({ project, clients, onSave, onClose }) {
                 type="date"
                 value={formData.endDate}
                 onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
 
           {!project && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <label className="flex items-center space-x-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={usePBBTemplate}
                   onChange={(e) => setUsePBBTemplate(e.target.checked)}
-                  className="w-5 h-5 text-amber-600 border-stone-300 rounded focus:ring-2 focus:ring-amber-500"
+                  className="w-5 h-5 text-blue-600 border-stone-300 rounded focus:ring-2 focus:ring-blue-500"
                 />
                 <div>
                   <span className="font-semibold text-stone-900">Use PBB Template</span>
@@ -1935,7 +1952,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
           <div className="flex space-x-3 pt-4">
             <button
               type="submit"
-              className="flex-1 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
               Save Project
             </button>
@@ -2021,7 +2038,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
               type="text"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Complete onboarding"
               required
             />
@@ -2034,7 +2051,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Task details..."
               rows="3"
             />
@@ -2047,7 +2064,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
             <select
               value={formData.projectId}
               onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Select a project (optional)</option>
               {projects.map(project => {
@@ -2074,7 +2091,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
                 <select
                   value={formData.phase}
                   onChange={handlePhaseChange}
-                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">No specific phase</option>
                   {PBB_TEMPLATE.phases.map(phase => (
@@ -2091,7 +2108,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
                   <select
                     value={formData.section}
                     onChange={handleSectionChange}
-                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">No specific section</option>
                     {currentPhase.sections.map(section => (
@@ -2110,7 +2127,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
             <select
               value={formData.assignedTo}
               onChange={(e) => setFormData({ ...formData, assignedTo: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Unassigned</option>
               {teamMembers.map(member => (
@@ -2127,7 +2144,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
               <select
                 value={formData.status}
                 onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="todo">To Do</option>
                 <option value="in-progress">In Progress</option>
@@ -2143,7 +2160,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
                 type="date"
                 value={formData.dueDate}
                 onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
@@ -2151,7 +2168,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
           <div className="flex space-x-3 pt-4">
             <button
               type="submit"
-              className="flex-1 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
               Save Task
             </button>
@@ -2201,7 +2218,7 @@ function TeamModal({ member, onSave, onClose }) {
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Jane Smith"
               required
             />
@@ -2215,7 +2232,7 @@ function TeamModal({ member, onSave, onClose }) {
               type="text"
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Customer Success Manager"
             />
           </div>
@@ -2228,7 +2245,7 @@ function TeamModal({ member, onSave, onClose }) {
               type="email"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="jane@company.com"
             />
           </div>
@@ -2236,7 +2253,7 @@ function TeamModal({ member, onSave, onClose }) {
           <div className="flex space-x-3 pt-4">
             <button
               type="submit"
-              className="flex-1 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
               Save Team Member
             </button>
