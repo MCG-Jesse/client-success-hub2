@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, List } from 'lucide-react';
+import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, List, BookOpen, FileText, Link, Download, Upload } from 'lucide-react';
 
 // PBB Template Definition
 const PBB_TEMPLATE = {
@@ -83,6 +83,7 @@ export default function ClientProjectManager() {
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [resources, setResources] = useState({ links: [] });
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -176,17 +177,19 @@ export default function ClientProjectManager() {
 
   const loadData = async () => {
     try {
-      const [clientsRes, projectsRes, tasksRes, teamRes] = await Promise.all([
+      const [clientsRes, projectsRes, tasksRes, teamRes, resourcesRes] = await Promise.all([
         storage.get('clients').catch(() => null),
         storage.get('projects').catch(() => null),
         storage.get('tasks').catch(() => null),
-        storage.get('team-members').catch(() => null)
+        storage.get('team-members').catch(() => null),
+        storage.get('resources').catch(() => null)
       ]);
 
       if (clientsRes?.value) setClients(JSON.parse(clientsRes.value));
       if (projectsRes?.value) setProjects(JSON.parse(projectsRes.value));
       if (tasksRes?.value) setTasks(JSON.parse(tasksRes.value));
       if (teamRes?.value) setTeamMembers(JSON.parse(teamRes.value));
+      if (resourcesRes?.value) setResources(JSON.parse(resourcesRes.value));
     } catch (error) {
       console.error('Error loading data:', error);
       showNotification('Error loading data. Starting fresh.', 'error');
@@ -240,6 +243,37 @@ export default function ClientProjectManager() {
       console.error('Error saving team members:', error);
       showNotification('Error saving team member. Please try again.', 'error');
       return false;
+    }
+  };
+
+  const saveResources = async (newResources) => {
+    try {
+      await storage.set('resources', JSON.stringify(newResources));
+      setResources(newResources);
+      return true;
+    } catch (error) {
+      console.error('Error saving resources:', error);
+      showNotification('Error saving resource. Please try again.', 'error');
+      return false;
+    }
+  };
+
+  // Resource functions - Links only
+  const addLink = async (link) => {
+    const newLink = { ...link, id: Date.now().toString(), dateAdded: new Date().toISOString() };
+    const success = await saveResources({ ...resources, links: [...resources.links, newLink] });
+    if (success) showNotification('Link added successfully!');
+  };
+
+  const updateLink = async (id, updatedLink) => {
+    const success = await saveResources({ ...resources, links: resources.links.map(l => l.id === id ? { ...updatedLink, id } : l) });
+    if (success) showNotification('Link updated successfully!');
+  };
+
+  const deleteLink = async (id) => {
+    if (confirm('Delete this link?')) {
+      const success = await saveResources({ ...resources, links: resources.links.filter(l => l.id !== id) });
+      if (success) showNotification('Link deleted successfully!');
     }
   };
 
@@ -343,6 +377,7 @@ export default function ClientProjectManager() {
         { id: 'tasks', label: 'Tasks', icon: CheckSquare }
       ]
     },
+    { id: 'resources', label: 'Resources', icon: BookOpen },
     { id: 'team', label: 'Team', icon: User }
   ];
 
@@ -655,6 +690,15 @@ export default function ClientProjectManager() {
               onAdd={() => { setEditingItem(null); setShowTeamModal(true); }}
               onEdit={(member) => { setEditingItem(member); setShowTeamModal(true); }}
               onDelete={deleteTeamMember}
+            />
+          )}
+
+          {activeTab === 'resources' && (
+            <ResourcesView
+              resources={resources}
+              onAddLink={addLink}
+              onEditLink={updateLink}
+              onDeleteLink={deleteLink}
             />
           )}
         </div>
@@ -1835,6 +1879,234 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+// Resources View Component - Links Only
+function ResourcesView({ resources, onAddLink, onEditLink, onDeleteLink }) {
+  const [showLinkModal, setShowLinkModal] = useState(false);
+  const [editingLink, setEditingLink] = useState(null);
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-3xl font-bold text-gray-900 mb-2">Resources</h2>
+        <p className="text-gray-600">Helpful links and resources for your team</p>
+      </div>
+
+      {/* Header with Add Button */}
+      <div className="flex justify-between items-center mb-6">
+        <div className="flex items-center space-x-2">
+          <Link size={24} className="text-blue-600" />
+          <h3 className="text-xl font-semibold text-gray-900">
+            Team Resources ({resources.links?.length || 0})
+          </h3>
+        </div>
+        <button
+          onClick={() => { setEditingLink(null); setShowLinkModal(true); }}
+          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+        >
+          <Plus size={20} />
+          <span>Add Link</span>
+        </button>
+      </div>
+
+      {/* Info Box */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+        <p className="text-sm text-blue-800">
+          <strong>💡 Tip:</strong> Share training materials, documentation, and helpful websites. 
+          Link to Google Drive, Dropbox, or any external resource your team needs!
+        </p>
+      </div>
+
+      {/* Links Grid */}
+      {!resources.links || resources.links.length === 0 ? (
+        <div className="bg-white rounded-lg border border-gray-200 p-12 text-center shadow-sm">
+          <Link size={48} className="mx-auto text-gray-300 mb-4" />
+          <h3 className="text-xl font-semibold text-gray-900 mb-2">No resources yet</h3>
+          <p className="text-gray-600 mb-4">
+            Add helpful links to training materials, documentation, and tools your team needs.
+          </p>
+          <button
+            onClick={() => { setEditingLink(null); setShowLinkModal(true); }}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+          >
+            Add Your First Link
+          </button>
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {resources.links.map(link => (
+            <div
+              key={link.id}
+              className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-all bg-white"
+            >
+              <div className="flex justify-between items-start mb-3">
+                <div className="flex items-center space-x-2 flex-1">
+                  <ExternalLink size={20} className="text-blue-600 flex-shrink-0" />
+                  <h4 className="font-bold text-gray-900 text-lg leading-tight">{link.title}</h4>
+                </div>
+                <div className="flex space-x-1">
+                  <button
+                    onClick={() => { setEditingLink(link); setShowLinkModal(true); }}
+                    className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                    title="Edit"
+                  >
+                    <Edit2 size={16} />
+                  </button>
+                  <button
+                    onClick={() => onDeleteLink(link.id)}
+                    className="p-1.5 text-gray-600 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              </div>
+              
+              {link.description && (
+                <p className="text-sm text-gray-600 mb-4 line-clamp-3">{link.description}</p>
+              )}
+              
+              <a
+                href={link.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors mb-3"
+              >
+                Visit Link →
+              </a>
+              
+              <div className="flex items-center justify-between text-xs text-gray-500 pt-3 border-t border-gray-100">
+                <span>Added {new Date(link.dateAdded).toLocaleDateString()}</span>
+                <a
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-700 truncate max-w-[150px]"
+                  title={link.url}
+                >
+                  {link.url.replace(/^https?:\/\//, '').split('/')[0]}
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Link Modal */}
+      {showLinkModal && (
+        <LinkModal
+          link={editingLink}
+          onSave={(link) => {
+            if (editingLink) {
+              onEditLink(editingLink.id, link);
+            } else {
+              onAddLink(link);
+            }
+            setShowLinkModal(false);
+            setEditingLink(null);
+          }}
+          onClose={() => { setShowLinkModal(false); setEditingLink(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Link Modal Component
+function LinkModal({ link, onSave, onClose }) {
+  const [formData, setFormData] = useState(link || {
+    title: '',
+    url: '',
+    description: ''
+  });
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.title.trim() || !formData.url.trim()) {
+      alert('Please enter both title and URL');
+      return;
+    }
+    
+    // Basic URL validation
+    try {
+      new URL(formData.url);
+    } catch {
+      alert('Please enter a valid URL (include http:// or https://)');
+      return;
+    }
+    
+    onSave(formData);
+  };
+
+  return (
+    <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="modal-content bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">
+          {link ? 'Edit Link' : 'Add New Link'}
+        </h2>
+        
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Title *
+            </label>
+            <input
+              type="text"
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="e.g., PBB Training Portal"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              URL *
+            </label>
+            <input
+              type="url"
+              value={formData.url}
+              onChange={(e) => setFormData({ ...formData, url: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="https://example.com"
+              required
+            />
+          </div>
+          
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Description (optional)
+            </label>
+            <textarea
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Brief description of this resource..."
+              rows="3"
+            />
+          </div>
+          
+          <div className="flex space-x-3 pt-4">
+            <button
+              type="submit"
+              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+            >
+              Save Link
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
