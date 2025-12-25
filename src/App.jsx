@@ -94,6 +94,7 @@ export default function ClientProjectManager() {
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showProjectDetailModal, setShowProjectDetailModal] = useState(false);
+  const [showClientDetailModal, setShowClientDetailModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
 
   // Storage helper - uses localStorage
@@ -651,6 +652,7 @@ export default function ClientProjectManager() {
               onAdd={() => { setEditingItem(null); setShowClientModal(true); }}
               onEdit={(client) => { setEditingItem(client); setShowClientModal(true); }}
               onDelete={deleteClient}
+              onView={(client) => { setEditingItem(client); setShowClientDetailModal(true); }}
               projects={projects}
               tasks={tasks}
               teamMembers={teamMembers}
@@ -727,6 +729,21 @@ export default function ClientProjectManager() {
             setEditingItem(null);
           }}
           onClose={() => { setShowClientModal(false); setEditingItem(null); }}
+        />
+      )}
+
+      {showClientDetailModal && editingItem && (
+        <ClientDetailView
+          client={editingItem}
+          teamMembers={teamMembers}
+          onClose={() => {
+            setShowClientDetailModal(false);
+            setEditingItem(null);
+          }}
+          onEdit={() => {
+            setShowClientDetailModal(false);
+            setShowClientModal(true);
+          }}
         />
       )}
 
@@ -1426,7 +1443,7 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
 }
 
 // Clients View Component (Enhanced with navigation)
-function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks, teamMembers, onNavigate }) {
+function ClientsView({ clients, onAdd, onEdit, onDelete, onView, projects, tasks, teamMembers, onNavigate }) {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
@@ -1502,11 +1519,17 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, projects, tasks, teamMe
                   )}
                 </div>
                 
-                <div className="border-t border-stone-200 pt-4 mt-4">
+                <div className="border-t border-stone-200 pt-4 mt-4 space-y-2">
                   <div className="flex justify-between text-sm mb-3">
                     <span className="text-stone-600">{clientProjects.length} projects</span>
                     <span className="text-stone-600">{clientTasks.length} tasks</span>
                   </div>
+                  <button
+                    onClick={() => onView(client)}
+                    className="w-full text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                  >
+                    View Details
+                  </button>
                   {clientProjects.length > 0 && (
                     <button
                       onClick={() => onNavigate('projects')}
@@ -2246,7 +2269,12 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
     phone: '',
     assignedTo: '',
     populationSize: '',
-    yearEndDate: ''
+    yearEndDate: '',
+    // Strategic Information
+    valueProposition: '',
+    problemIssue: '',
+    goalMetric: '',
+    expectedDeliverables: ''
   });
 
   const handleSubmit = (e) => {
@@ -2361,6 +2389,63 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
               />
               <p className="text-xs text-stone-500 mt-1">Fiscal year-end date for this client</p>
             </div>
+
+            {/* Strategic Information Section */}
+            <div className="col-span-2 pt-4 border-t border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900 mb-3">Project Strategy</h3>
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Value Proposition
+              </label>
+              <textarea
+                value={formData.valueProposition}
+                onChange={(e) => setFormData({ ...formData, valueProposition: e.target.value })}
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="What value is the entity to get out of the project?"
+                rows="3"
+              />
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Problem or Issue
+              </label>
+              <textarea
+                value={formData.problemIssue}
+                onChange={(e) => setFormData({ ...formData, problemIssue: e.target.value })}
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Why is the entity switching to PBB now?"
+                rows="3"
+              />
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Goal/Metric
+              </label>
+              <textarea
+                value={formData.goalMetric}
+                onChange={(e) => setFormData({ ...formData, goalMetric: e.target.value })}
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="What is the measure of success for the project?"
+                rows="2"
+              />
+            </div>
+
+            <div className="col-span-2">
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                Expected Deliverables
+              </label>
+              <textarea
+                value={formData.expectedDeliverables}
+                onChange={(e) => setFormData({ ...formData, expectedDeliverables: e.target.value })}
+                className="w-full px-4 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="What is the client expecting to receive from us?"
+                rows="3"
+              />
+            </div>
           </div>
           
           <div className="flex space-x-3 pt-4">
@@ -2379,6 +2464,108 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// Client Detail View Component
+function ClientDetailView({ client, teamMembers, onClose, onEdit }) {
+  const assignedMember = teamMembers.find(m => m.id === client.assignedTo);
+  
+  return (
+    <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="modal-content bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-5 flex justify-between items-center rounded-t-lg">
+          <div>
+            <h2 className="text-2xl font-bold text-white">{client.name}</h2>
+            {client.company && <p className="text-blue-100 mt-1">{client.company}</p>}
+          </div>
+          <div className="flex space-x-2">
+            <button
+              onClick={onEdit}
+              className="px-4 py-2 bg-white hover:bg-blue-50 text-blue-700 rounded-lg transition-colors font-medium"
+            >
+              Edit
+            </button>
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-blue-800 hover:bg-blue-900 text-white rounded-lg transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+        
+        {/* Content */}
+        <div className="p-6 space-y-6">
+          {/* Basic Information */}
+          <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+              <Users size={20} className="mr-2 text-blue-600" />
+              Contact Information
+            </h3>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-600">Email</label>
+                <p className="text-gray-900 mt-1">{client.email || '—'}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-600">Phone</label>
+                <p className="text-gray-900 mt-1">{client.phone || '—'}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-600">Assigned To</label>
+                <p className="text-gray-900 mt-1">{assignedMember?.name || 'Unassigned'}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-600">Population Size</label>
+                <p className="text-gray-900 mt-1">{client.populationSize || '—'}</p>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-600">Year-End Date</label>
+                <p className="text-gray-900 mt-1">
+                  {client.yearEndDate ? new Date(client.yearEndDate).toLocaleDateString() : '—'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Strategic Information */}
+          <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
+            <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
+              <LayoutDashboard size={20} className="mr-2 text-blue-600" />
+              Project Strategy
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="text-sm font-semibold text-blue-900">Value Proposition</label>
+                <p className="text-gray-800 mt-1 whitespace-pre-wrap">
+                  {client.valueProposition || 'Not specified'}
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-blue-900">Problem or Issue</label>
+                <p className="text-gray-800 mt-1 whitespace-pre-wrap">
+                  {client.problemIssue || 'Not specified'}
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-blue-900">Goal/Metric</label>
+                <p className="text-gray-800 mt-1 whitespace-pre-wrap">
+                  {client.goalMetric || 'Not specified'}
+                </p>
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-blue-900">Expected Deliverables</label>
+                <p className="text-gray-800 mt-1 whitespace-pre-wrap">
+                  {client.expectedDeliverables || 'Not specified'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
