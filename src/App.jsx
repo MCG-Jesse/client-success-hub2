@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, List, BookOpen, FileText, Link, Download, Upload } from 'lucide-react';
+import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, List, BookOpen, FileText, Link, Download, Upload, Table, PieChart, TrendingUp, Filter } from 'lucide-react';
 
 // PBB Template Definition
 const PBB_TEMPLATE = {
@@ -375,7 +375,9 @@ export default function ClientProjectManager() {
       subItems: [
         { id: 'kanban', label: 'Kanban Board', icon: Trello },
         { id: 'gantt', label: 'Gantt Chart', icon: BarChart3 },
-        { id: 'tasks', label: 'Tasks', icon: CheckSquare }
+        { id: 'tasks', label: 'Tasks', icon: CheckSquare },
+        { id: 'table', label: 'Table View', icon: Table },
+        { id: 'analytics', label: 'Analytics', icon: PieChart }
       ]
     },
     { id: 'resources', label: 'Resources', icon: BookOpen },
@@ -682,6 +684,26 @@ export default function ClientProjectManager() {
               onEdit={(task) => { setEditingItem(task); setShowTaskModal(true); }}
               onDelete={deleteTask}
               onUpdateStatus={updateTask}
+            />
+          )}
+
+          {activeTab === 'table' && (
+            <TableView
+              tasks={tasks}
+              projects={projects}
+              clients={clients}
+              teamMembers={teamMembers}
+              onEditTask={(task) => { setEditingItem(task); setShowTaskModal(true); }}
+              onUpdateStatus={updateTask}
+            />
+          )}
+
+          {activeTab === 'analytics' && (
+            <AnalyticsView
+              tasks={tasks}
+              projects={projects}
+              clients={clients}
+              teamMembers={teamMembers}
             />
           )}
           
@@ -2129,6 +2151,424 @@ function LinkModal({ link, onSave, onClose }) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// Table View Component - Wrike Style
+function TableView({ tasks, projects, clients, teamMembers, onEditTask, onUpdateStatus }) {
+  const [sortColumn, setSortColumn] = useState('dueDate');
+  const [sortDirection, setSortDirection] = useState('asc');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterAssignee, setFilterAssignee] = useState('all');
+
+  const handleSort = (column) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortColumn(column);
+      setSortDirection('asc');
+    }
+  };
+
+  const filteredTasks = tasks.filter(task => {
+    if (filterStatus !== 'all' && task.status !== filterStatus) return false;
+    if (filterAssignee !== 'all' && task.assignedTo !== filterAssignee) return false;
+    return true;
+  });
+
+  const sortedTasks = [...filteredTasks].sort((a, b) => {
+    let aVal, bVal;
+    
+    switch (sortColumn) {
+      case 'title':
+        aVal = a.title.toLowerCase();
+        bVal = b.title.toLowerCase();
+        break;
+      case 'project':
+        const aProject = projects.find(p => p.id === a.projectId);
+        const bProject = projects.find(p => p.id === b.projectId);
+        aVal = aProject?.name.toLowerCase() || '';
+        bVal = bProject?.name.toLowerCase() || '';
+        break;
+      case 'assignedTo':
+        const aAssignee = teamMembers.find(m => m.id === a.assignedTo);
+        const bAssignee = teamMembers.find(m => m.id === b.assignedTo);
+        aVal = aAssignee?.name.toLowerCase() || 'zzz';
+        bVal = bAssignee?.name.toLowerCase() || 'zzz';
+        break;
+      case 'status':
+        aVal = a.status;
+        bVal = b.status;
+        break;
+      case 'dueDate':
+        aVal = a.dueDate || '9999-12-31';
+        bVal = b.dueDate || '9999-12-31';
+        break;
+      default:
+        return 0;
+    }
+    
+    if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
+    if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  const SortIcon = ({ column }) => {
+    if (sortColumn !== column) return <ChevronDown size={14} className="opacity-0 group-hover:opacity-30" />;
+    return sortDirection === 'asc' ? <ChevronDown size={14} /> : <ChevronRight size={14} className="rotate-180" />;
+  };
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-3xl font-bold text-gray-900 mb-2">Table View</h2>
+        <p className="text-gray-600">Comprehensive task list with sorting and filtering</p>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6 shadow-sm">
+        <div className="flex items-center space-x-4">
+          <Filter size={20} className="text-gray-600" />
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Status</option>
+            <option value="todo">To Do</option>
+            <option value="in-progress">In Progress</option>
+            <option value="completed">Completed</option>
+          </select>
+          <select
+            value={filterAssignee}
+            onChange={(e) => setFilterAssignee(e.target.value)}
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">All Team Members</option>
+            {teamMembers.map(member => (
+              <option key={member.id} value={member.id}>{member.name}</option>
+            ))}
+          </select>
+          <span className="text-sm text-gray-600 ml-auto">
+            Showing {sortedTasks.length} of {tasks.length} tasks
+          </span>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                <th 
+                  className="px-6 py-3 text-left cursor-pointer group hover:bg-gray-100 transition-colors"
+                  onClick={() => handleSort('title')}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span className="text-xs font-semibold text-gray-700 uppercase">Task</span>
+                    <SortIcon column="title" />
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left cursor-pointer group hover:bg-gray-100 transition-colors"
+                  onClick={() => handleSort('project')}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span className="text-xs font-semibold text-gray-700 uppercase">Project</span>
+                    <SortIcon column="project" />
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left cursor-pointer group hover:bg-gray-100 transition-colors"
+                  onClick={() => handleSort('assignedTo')}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span className="text-xs font-semibold text-gray-700 uppercase">Assigned To</span>
+                    <SortIcon column="assignedTo" />
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left cursor-pointer group hover:bg-gray-100 transition-colors"
+                  onClick={() => handleSort('status')}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span className="text-xs font-semibold text-gray-700 uppercase">Status</span>
+                    <SortIcon column="status" />
+                  </div>
+                </th>
+                <th 
+                  className="px-6 py-3 text-left cursor-pointer group hover:bg-gray-100 transition-colors"
+                  onClick={() => handleSort('dueDate')}
+                >
+                  <div className="flex items-center space-x-1">
+                    <span className="text-xs font-semibold text-gray-700 uppercase">Due Date</span>
+                    <SortIcon column="dueDate" />
+                  </div>
+                </th>
+                <th className="px-6 py-3 text-left">
+                  <span className="text-xs font-semibold text-gray-700 uppercase">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {sortedTasks.length === 0 ? (
+                <tr>
+                  <td colSpan="6" className="px-6 py-12 text-center text-gray-500">
+                    No tasks match your filters
+                  </td>
+                </tr>
+              ) : (
+                sortedTasks.map(task => {
+                  const project = projects.find(p => p.id === task.projectId);
+                  const client = clients.find(c => c.id === project?.clientId);
+                  const assignee = teamMembers.find(m => m.id === task.assignedTo);
+                  const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && task.status !== 'completed';
+
+                  return (
+                    <tr key={task.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div>
+                          <div className="font-medium text-gray-900">{task.title}</div>
+                          {client && (
+                            <div className="text-sm text-gray-600">{client.name}</div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-900">{project?.name || '—'}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="text-sm text-gray-900">{assignee?.name || 'Unassigned'}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <StatusBadge status={task.status} />
+                      </td>
+                      <td className="px-6 py-4">
+                        {task.dueDate ? (
+                          <div className={`text-sm ${isOverdue ? 'text-red-700 font-semibold' : 'text-gray-900'}`}>
+                            {new Date(task.dueDate).toLocaleDateString()}
+                            {isOverdue && <span className="ml-2 text-xs">(Overdue)</span>}
+                          </div>
+                        ) : (
+                          <span className="text-sm text-gray-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4">
+                        <button
+                          onClick={() => onEditTask(task)}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                        >
+                          Edit
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <p className="text-sm text-blue-800">
+          <strong>💡 Tip:</strong> Click column headers to sort. Use filters to narrow your view. Click "Edit" to update task details.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// Analytics View Component - Wrike Style
+function AnalyticsView({ tasks, projects, clients, teamMembers }) {
+  // Calculate statistics
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter(t => t.status === 'completed').length;
+  const inProgressTasks = tasks.filter(t => t.status === 'in-progress').length;
+  const todoTasks = tasks.filter(t => t.status === 'todo').length;
+  const overdueTasks = tasks.filter(t => 
+    t.dueDate && new Date(t.dueDate) < new Date() && t.status !== 'completed'
+  ).length;
+
+  const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  // Active projects
+  const activeProjects = projects.filter(p => p.status !== 'completed').length;
+
+  // Tasks by team member
+  const tasksByMember = teamMembers.map(member => ({
+    name: member.name,
+    total: tasks.filter(t => t.assignedTo === member.id).length,
+    completed: tasks.filter(t => t.assignedTo === member.id && t.status === 'completed').length,
+    inProgress: tasks.filter(t => t.assignedTo === member.id && t.status === 'in-progress').length
+  })).filter(m => m.total > 0);
+
+  const unassignedTasks = tasks.filter(t => !t.assignedTo).length;
+
+  // Tasks by project
+  const tasksByProject = projects.map(project => {
+    const projectTasks = tasks.filter(t => t.projectId === project.id);
+    const client = clients.find(c => c.id === project.clientId);
+    return {
+      name: project.name,
+      client: client?.name,
+      total: projectTasks.length,
+      completed: projectTasks.filter(t => t.status === 'completed').length,
+      completionRate: projectTasks.length > 0 ? Math.round((projectTasks.filter(t => t.status === 'completed').length / projectTasks.length) * 100) : 0
+    };
+  }).filter(p => p.total > 0).sort((a, b) => b.total - a.total);
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-3xl font-bold text-gray-900 mb-2">Analytics</h2>
+        <p className="text-gray-600">Insights and performance metrics</p>
+      </div>
+
+      {/* Overview Stats */}
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+        <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-600">Total Tasks</span>
+            <CheckSquare size={20} className="text-blue-600" />
+          </div>
+          <p className="text-3xl font-bold text-gray-900">{totalTasks}</p>
+          <p className="text-sm text-gray-600 mt-1">Across all projects</p>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-600">Completion Rate</span>
+            <TrendingUp size={20} className="text-green-600" />
+          </div>
+          <p className="text-3xl font-bold text-gray-900">{completionRate}%</p>
+          <p className="text-sm text-gray-600 mt-1">{completedTasks} of {totalTasks} completed</p>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-600">Active Projects</span>
+            <FolderKanban size={20} className="text-purple-600" />
+          </div>
+          <p className="text-3xl font-bold text-gray-900">{activeProjects}</p>
+          <p className="text-sm text-gray-600 mt-1">Currently in progress</p>
+        </div>
+
+        <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-600">Overdue Tasks</span>
+            <AlertCircle size={20} className="text-red-600" />
+          </div>
+          <p className="text-3xl font-bold text-gray-900">{overdueTasks}</p>
+          <p className="text-sm text-gray-600 mt-1">Need attention</p>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6 mb-6">
+        {/* Task Status Breakdown */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Task Status</h3>
+          <div className="space-y-3">
+            <div>
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-gray-600">To Do</span>
+                <span className="font-semibold text-gray-900">{todoTasks} ({totalTasks > 0 ? Math.round((todoTasks/totalTasks)*100) : 0}%)</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="bg-gray-600 h-2 rounded-full" style={{ width: `${totalTasks > 0 ? (todoTasks/totalTasks)*100 : 0}%` }}></div>
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-gray-600">In Progress</span>
+                <span className="font-semibold text-gray-900">{inProgressTasks} ({totalTasks > 0 ? Math.round((inProgressTasks/totalTasks)*100) : 0}%)</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${totalTasks > 0 ? (inProgressTasks/totalTasks)*100 : 0}%` }}></div>
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-gray-600">Completed</span>
+                <span className="font-semibold text-gray-900">{completedTasks} ({completionRate}%)</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div className="bg-green-600 h-2 rounded-full" style={{ width: `${completionRate}%` }}></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Team Workload */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Team Workload</h3>
+          <div className="space-y-3">
+            {tasksByMember.slice(0, 5).map((member, idx) => (
+              <div key={idx}>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-gray-600">{member.name}</span>
+                  <span className="font-semibold text-gray-900">{member.total} tasks</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="bg-purple-600 h-2 rounded-full" style={{ width: `${(member.total / totalTasks) * 100}%` }}></div>
+                </div>
+              </div>
+            ))}
+            {unassignedTasks > 0 && (
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-gray-600">Unassigned</span>
+                  <span className="font-semibold text-gray-900">{unassignedTasks} tasks</span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div className="bg-orange-600 h-2 rounded-full" style={{ width: `${(unassignedTasks / totalTasks) * 100}%` }}></div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Project Progress */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+        <h3 className="text-lg font-bold text-gray-900 mb-4">Project Progress</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="border-b border-gray-200">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Project</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Client</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Total Tasks</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Completed</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Progress</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {tasksByProject.map((project, idx) => (
+                <tr key={idx} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{project.name}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{project.client || '—'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-900">{project.total}</td>
+                  <td className="px-4 py-3 text-sm text-gray-900">{project.completed}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center space-x-2">
+                      <div className="flex-1 bg-gray-200 rounded-full h-2 max-w-[100px]">
+                        <div 
+                          className="bg-blue-600 h-2 rounded-full" 
+                          style={{ width: `${project.completionRate}%` }}
+                        ></div>
+                      </div>
+                      <span className="text-sm font-semibold text-gray-900">{project.completionRate}%</span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
