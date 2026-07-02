@@ -81,7 +81,7 @@ const PBB_TEMPLATE = {
 const PRIORITIES = {
   urgent: { label: 'Urgent', badge: 'bg-red-100 text-red-700 border border-red-200', dot: 'bg-red-500' },
   high:   { label: 'High',   badge: 'bg-orange-100 text-orange-700 border border-orange-200', dot: 'bg-orange-500' },
-  medium: { label: 'Medium', badge: 'bg-blue-100 text-blue-700 border border-blue-200', dot: 'bg-blue-500' },
+  medium: { label: 'Medium', badge: 'bg-brand-100 text-brand-700 border border-brand-200', dot: 'bg-brand-500' },
   low:    { label: 'Low',    badge: 'bg-gray-100 text-gray-600 border border-gray-200', dot: 'bg-gray-400' }
 };
 const PRIORITY_ORDER = ['urgent', 'high', 'medium', 'low'];
@@ -109,14 +109,19 @@ const DEFAULT_COLUMNS = [
 ];
 const COLUMN_COLORS = {
   gray: 'bg-gray-100 text-gray-700',
-  blue: 'bg-blue-100 text-blue-700',
+  blue: 'bg-brand-100 text-brand-700',
   green: 'bg-green-100 text-green-700',
   purple: 'bg-purple-100 text-purple-700',
   orange: 'bg-orange-100 text-orange-700',
   teal: 'bg-teal-100 text-teal-700',
   pink: 'bg-pink-100 text-pink-700'
 };
-const COLUMN_COLOR_CYCLE = ['purple', 'orange', 'teal', 'pink', 'blue', 'green'];
+const COLUMN_COLOR_CYCLE = ['blue', 'orange', 'teal', 'green', 'pink', 'purple'];
+// Solid fills for progress bars (Analytics), keyed by column color
+const COLUMN_BAR_COLORS = {
+  gray: 'bg-gray-600', blue: 'bg-brand-600', green: 'bg-green-600',
+  purple: 'bg-purple-600', orange: 'bg-orange-600', teal: 'bg-teal-600', pink: 'bg-pink-600'
+};
 const loadBoardColumns = () => {
   try {
     const raw = localStorage.getItem('kanban-columns');
@@ -143,6 +148,41 @@ const parseLocalDate = (s) => (s ? new Date(s + 'T00:00:00') : null);
 const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
 const toYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const isTaskOverdue = (task) => !!task.dueDate && task.status !== 'completed' && parseLocalDate(task.dueDate) < startOfToday();
+
+// Catches render errors so a crash in one view (or a bad localStorage record)
+// shows a recoverable message instead of a blank white screen.
+export class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, info) {
+    console.error('Caught by ErrorBoundary:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-[50vh] flex items-center justify-center p-8">
+          <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-8 max-w-md text-center">
+            <AlertCircle size={40} className="mx-auto text-red-500 mb-4" />
+            <h3 className="text-xl font-bold text-gray-900 mb-2">Something went wrong</h3>
+            <p className="text-gray-600 mb-4">This section ran into an unexpected error. Your saved data is safe.</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-brand-600 hover:bg-brand-700 text-white px-5 py-2 rounded-lg transition-colors"
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function ClientProjectManager() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -244,6 +284,17 @@ export default function ClientProjectManager() {
   }, []);
 
   const loadData = async () => {
+    // Parse a stored value, falling back to a default if it's missing,
+    // not valid JSON, or the wrong shape — so one corrupt key can't crash the app.
+    const safeParse = (res, fallback, isValid) => {
+      if (!res?.value) return fallback;
+      try {
+        const parsed = JSON.parse(res.value);
+        return isValid(parsed) ? parsed : fallback;
+      } catch {
+        return fallback;
+      }
+    };
     try {
       const [clientsRes, projectsRes, tasksRes, teamRes, resourcesRes] = await Promise.all([
         storage.get('clients').catch(() => null),
@@ -253,14 +304,19 @@ export default function ClientProjectManager() {
         storage.get('resources').catch(() => null)
       ]);
 
-      if (clientsRes?.value) setClients(JSON.parse(clientsRes.value));
-      if (projectsRes?.value) setProjects(JSON.parse(projectsRes.value));
-      if (tasksRes?.value) setTasks(JSON.parse(tasksRes.value));
-      if (teamRes?.value) setTeamMembers(JSON.parse(teamRes.value));
-      if (resourcesRes?.value) setResources(JSON.parse(resourcesRes.value));
+      setClients(safeParse(clientsRes, [], Array.isArray));
+      setProjects(safeParse(projectsRes, [], Array.isArray));
+      // Normalize each task's subtasks to an array so malformed records can't crash a view
+      setTasks(safeParse(tasksRes, [], Array.isArray).map(t => ({
+        ...t,
+        subtasks: Array.isArray(t.subtasks) ? t.subtasks : []
+      })));
+      setTeamMembers(safeParse(teamRes, [], Array.isArray));
+      const res = safeParse(resourcesRes, { links: [] }, v => v && typeof v === 'object');
+      setResources({ links: Array.isArray(res.links) ? res.links : [] });
     } catch (error) {
       console.error('Error loading data:', error);
-      showNotification('Error loading data. Starting fresh.', 'error');
+      showNotification('Some saved data was invalid and was skipped.', 'error');
     } finally {
       setLoading(false);
     }
@@ -461,8 +517,9 @@ export default function ClientProjectManager() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-blue-600 text-xl font-serif">Loading your workspace...</div>
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center gap-4">
+        <div className="w-10 h-10 border-4 border-gray-200 border-t-brand-600 rounded-full animate-spin"></div>
+        <div className="text-gray-500 text-sm">Loading your workspace…</div>
       </div>
     );
   }
@@ -470,17 +527,23 @@ export default function ClientProjectManager() {
   return (
     <div className="min-h-screen bg-gray-50">
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap');
-        
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&family=Playfair+Display:wght@600;700&display=swap');
+
         * {
           font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
         }
-        
+
         h1, h2, h3, h4 {
           font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
           font-weight: 700;
         }
-        
+
+        .joan-title {
+          font-family: 'Playfair Display', Georgia, serif;
+          font-weight: 700;
+          letter-spacing: 0.01em;
+        }
+
         .task-card {
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
           border: 1px solid #e5e7eb;
@@ -498,17 +561,17 @@ export default function ClientProjectManager() {
         }
         
         .sidebar-item:hover {
-          background: rgba(59, 130, 246, 0.08);
+          background: rgba(168, 134, 63, 0.10);
           transform: translateX(4px);
         }
-        
+
         .sidebar-item.active {
-          background: linear-gradient(90deg, rgba(59, 130, 246, 0.12), rgba(96, 165, 250, 0.08));
-          border-right: 3px solid #3b82f6;
-          color: #1e40af;
+          background: linear-gradient(90deg, rgba(168, 134, 63, 0.16), rgba(193, 159, 79, 0.08));
+          border-right: 3px solid #a8863f;
+          color: #5c4522;
           font-weight: 600;
         }
-        
+
         .sidebar-item.active::before {
           content: '';
           position: absolute;
@@ -516,7 +579,7 @@ export default function ClientProjectManager() {
           top: 0;
           bottom: 0;
           width: 4px;
-          background: linear-gradient(180deg, #3b82f6, #2563eb);
+          background: linear-gradient(180deg, #a8863f, #8f6f33);
         }
         
         .status-badge {
@@ -586,21 +649,21 @@ export default function ClientProjectManager() {
       )}
 
       {/* Header */}
-      <header className="bg-gradient-to-r from-blue-700 via-blue-600 to-blue-700 shadow-lg fixed top-0 left-0 right-0 z-30">
+      <header className="bg-[#1c1a17] shadow-lg fixed top-0 left-0 right-0 z-30 border-b-2 border-[#b8944d]">
         <div className="px-6 py-5 flex items-center justify-between">
           <div className="flex items-center space-x-4">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="lg:hidden text-white hover:text-blue-100 transition-colors"
+              className="lg:hidden text-[#f5edd8] hover:text-white transition-colors"
             >
               {sidebarOpen ? <X size={24} /> : <Menu size={24} />}
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-white">Client Success Hub</h1>
-              <p className="text-sm text-blue-100 hidden sm:block">Priority Based Budgeting Customer Success Platform</p>
+              <h1 className="joan-title text-2xl text-[#f5edd8]">📋 Joan</h1>
+              <p className="text-sm text-[#bfae86] hidden sm:block italic">Command your projects with boardroom authority</p>
             </div>
           </div>
-          <div className="text-sm text-blue-100 font-medium">
+          <div className="text-sm text-[#a89f8c] font-medium">
             {clients.length} clients • {projects.length} projects • {tasks.length} tasks
           </div>
         </div>
@@ -628,7 +691,7 @@ export default function ClientProjectManager() {
                 }}
                 className={`sidebar-item w-full flex items-center justify-between px-6 py-3 text-left ${
                   (activeTab === item.id || (item.subItems && item.subItems.some(sub => sub.id === activeTab)))
-                    ? 'active text-blue-700 font-semibold'
+                    ? 'active text-brand-700 font-semibold'
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
@@ -655,7 +718,7 @@ export default function ClientProjectManager() {
                       }}
                       className={`w-full flex items-center space-x-3 pl-14 pr-6 py-2.5 text-left transition-colors ${
                         activeTab === subItem.id
-                          ? 'bg-blue-100 text-blue-700 font-semibold border-l-4 border-blue-600'
+                          ? 'bg-brand-100 text-brand-700 font-semibold border-l-4 border-brand-600'
                           : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900 border-l-4 border-transparent'
                       }`}
                     >
@@ -684,8 +747,9 @@ export default function ClientProjectManager() {
         sidebarOpen ? 'lg:ml-64' : 'ml-0'
       }`}>
         <div className="p-8 bg-gray-50 min-h-screen">
+          <ErrorBoundary key={activeTab}>
           {activeTab === 'dashboard' && (
-            <DashboardView 
+            <DashboardView
               clients={clients}
               projects={projects}
               tasks={tasks}
@@ -806,6 +870,7 @@ export default function ClientProjectManager() {
               onDeleteLink={deleteLink}
             />
           )}
+          </ErrorBoundary>
         </div>
       </main>
 
@@ -982,7 +1047,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
         <h2 className="text-3xl font-bold text-gray-900">Kanban Board</h2>
         <button
           onClick={onAddTask}
-          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
         >
           <Plus size={20} />
           <span>Add Task</span>
@@ -998,7 +1063,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
             <div
               key={column.id}
               className={`kanban-column group bg-white rounded-lg border-2 p-4 w-80 flex-shrink-0 ${
-                dragOverColumn === column.id ? 'drag-over border-blue-400' : 'border-gray-200'
+                dragOverColumn === column.id ? 'drag-over border-brand-400' : 'border-gray-200'
               }`}
               onDragOver={(e) => handleDragOver(e, column.id)}
               onDragLeave={handleDragLeave}
@@ -1017,7 +1082,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
                         if (e.key === 'Enter') { e.preventDefault(); commitRename(); }
                         if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
                       }}
-                      className="w-full text-lg font-bold text-gray-900 border-b-2 border-blue-400 focus:outline-none bg-transparent"
+                      className="w-full text-lg font-bold text-gray-900 border-b-2 border-brand-400 focus:outline-none bg-transparent"
                     />
                   ) : (
                     <h3
@@ -1039,7 +1104,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
                 <button
                   onClick={() => moveColumn(idx, -1)}
                   disabled={idx === 0}
-                  className="hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-300 transition-colors"
+                  className="hover:text-brand-600 disabled:opacity-30 disabled:hover:text-gray-300 transition-colors"
                   title="Move left"
                 >
                   <ChevronLeft size={16} />
@@ -1047,14 +1112,14 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
                 <button
                   onClick={() => moveColumn(idx, 1)}
                   disabled={idx === columns.length - 1}
-                  className="hover:text-blue-600 disabled:opacity-30 disabled:hover:text-gray-300 transition-colors"
+                  className="hover:text-brand-600 disabled:opacity-30 disabled:hover:text-gray-300 transition-colors"
                   title="Move right"
                 >
                   <ChevronRight size={16} />
                 </button>
                 <button
                   onClick={() => startRename(column)}
-                  className="hover:text-blue-600 transition-colors"
+                  className="hover:text-brand-600 transition-colors"
                   title="Rename column"
                 >
                   <Edit2 size={14} />
@@ -1090,7 +1155,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
                         <h4 className="font-semibold text-gray-900 flex-1">{task.title}</h4>
                         <button
                           onClick={() => onEditTask(task)}
-                          className="text-gray-400 hover:text-blue-600 transition-colors"
+                          className="text-gray-400 hover:text-brand-600 transition-colors"
                         >
                           <Edit2 size={14} />
                         </button>
@@ -1143,12 +1208,12 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
               value={newColumnName}
               onChange={(e) => setNewColumnName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addColumn(); } }}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 mb-2"
               placeholder="Column name"
             />
             <button
               onClick={addColumn}
-              className="w-full flex items-center justify-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm transition-colors"
+              className="w-full flex items-center justify-center gap-1 bg-brand-600 hover:bg-brand-700 text-white px-3 py-2 rounded-lg text-sm transition-colors"
             >
               <Plus size={16} />Add column
             </button>
@@ -1156,8 +1221,8 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
         </div>
       </div>
 
-      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <p className="text-sm text-blue-800">
+      <div className="mt-6 bg-brand-50 border border-brand-200 rounded-lg p-4">
+        <p className="text-sm text-brand-800">
           <strong>💡 Tip:</strong> Drag tasks between columns to change their status. Add your own columns to fit your workflow.
         </p>
       </div>
@@ -1275,7 +1340,7 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
 
   // Status colors
   const statusColors = {
-    'planning': 'bg-purple-500',
+    'planning': 'bg-amber-500',
     'active': 'bg-green-500',
     'on-hold': 'bg-yellow-500',
     'completed': 'bg-gray-400'
@@ -1304,15 +1369,15 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
       <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6 shadow-sm">
         <div className="flex flex-wrap items-center gap-6 text-sm">
           <div className="flex items-center space-x-2">
-            <div className="w-6 h-4 bg-gradient-to-r from-blue-500 to-blue-600 rounded"></div>
+            <div className="w-6 h-4 bg-gradient-to-r from-brand-500 to-brand-600 rounded"></div>
             <span className="text-gray-700">Project</span>
           </div>
           <div className="flex items-center space-x-2">
-            <div className="w-6 h-3 bg-blue-300 rounded"></div>
+            <div className="w-6 h-3 bg-brand-300 rounded"></div>
             <span className="text-gray-700">Task</span>
           </div>
           <div className="flex items-center space-x-2">
-            <div className="w-6 h-4 bg-gradient-to-r from-purple-500 to-purple-600 rounded"></div>
+            <div className="w-6 h-4 bg-gradient-to-r from-amber-500 to-amber-600 rounded"></div>
             <span className="text-gray-700">Planning</span>
           </div>
           <div className="flex items-center space-x-2">
@@ -1370,21 +1435,21 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
               const projectTasks = group.tasks;
               const position = project && group.hasDates ? getBarPosition(project.startDate, project.endDate) : null;
               const progress = project ? getProjectProgress(project.id) : 0;
-              const statusColor = project ? (statusColors[project.status] || 'bg-blue-500') : 'bg-blue-500';
+              const statusColor = project ? (statusColors[project.status] || 'bg-brand-500') : 'bg-brand-500';
               const totalTasks = project ? tasks.filter(t => t.projectId === project.id).length : projectTasks.length;
 
               return (
-                <div key={group.key} className={`border-l-4 ${project ? 'border-blue-500' : 'border-gray-300'} pl-4 bg-gray-50 rounded-r-lg py-3`}>
+                <div key={group.key} className={`border-l-4 ${project ? 'border-brand-500' : 'border-gray-300'} pl-4 bg-gray-50 rounded-r-lg py-3`}>
                   {/* Header Row */}
                   <div className="flex items-center mb-3">
                     <div className="w-64">
                       {project ? (
                         <>
                           <div className="flex items-center space-x-2 mb-1">
-                            <FolderKanban size={18} className="text-blue-600" />
+                            <FolderKanban size={18} className="text-brand-600" />
                             <button
                               onClick={() => onEditProject(project)}
-                              className="font-bold text-gray-900 hover:text-blue-600 transition-colors text-left"
+                              className="font-bold text-gray-900 hover:text-brand-600 transition-colors text-left"
                             >
                               {project.name}
                             </button>
@@ -1453,7 +1518,7 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
                                 <CheckSquare size={14} className={isCompleted ? 'text-green-600' : 'text-gray-400'} />
                                 <button
                                   onClick={() => onEditTask(task)}
-                                  className="text-sm text-gray-700 hover:text-blue-600 transition-colors text-left truncate"
+                                  className="text-sm text-gray-700 hover:text-brand-600 transition-colors text-left truncate"
                                 >
                                   {task.title}
                                 </button>
@@ -1468,7 +1533,7 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
                                       ? 'bg-green-400'
                                       : isOverdue
                                       ? 'bg-red-400'
-                                      : 'bg-blue-300'
+                                      : 'bg-brand-300'
                                   }`}
                                   style={taskPosition}
                                   onClick={() => onEditTask(task)}
@@ -1494,8 +1559,8 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
         </div>
       </div>
 
-      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <p className="text-sm text-blue-800">
+      <div className="mt-6 bg-brand-50 border border-brand-200 rounded-lg p-4">
+        <p className="text-sm text-brand-800">
           <strong>💡 Tip:</strong> Project bars show progress based on task completion. The red line marks today's date. Click any bar to edit!
         </p>
       </div>
@@ -1558,29 +1623,29 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <button
           onClick={() => onNavigate('kanban')}
-          className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-md hover:shadow-lg transition-all hover:scale-105"
+          className="bg-gradient-to-br from-brand-500 to-brand-600 text-white p-6 rounded-lg shadow-md hover:shadow-lg transition-all hover:scale-105"
         >
           <Trello size={32} className="mb-2" />
           <h3 className="text-lg font-bold">Kanban Board</h3>
-          <p className="text-sm text-blue-100 mt-1">Drag & drop task management</p>
+          <p className="text-sm text-brand-100 mt-1">Drag & drop task management</p>
         </button>
 
         <button
           onClick={() => onNavigate('gantt')}
-          className="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-6 rounded-lg shadow-md hover:shadow-lg transition-all hover:scale-105"
+          className="bg-gradient-to-br from-brand-500 to-brand-600 text-white p-6 rounded-lg shadow-md hover:shadow-lg transition-all hover:scale-105"
         >
           <BarChart3 size={32} className="mb-2" />
           <h3 className="text-lg font-bold">Gantt Chart</h3>
-          <p className="text-sm text-purple-100 mt-1">Timeline visualization</p>
+          <p className="text-sm text-brand-100 mt-1">Timeline visualization</p>
         </button>
 
         <button
           onClick={() => onNavigate('table')}
-          className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-6 rounded-lg shadow-md hover:shadow-lg transition-all hover:scale-105"
+          className="bg-gradient-to-br from-brand-500 to-brand-600 text-white p-6 rounded-lg shadow-md hover:shadow-lg transition-all hover:scale-105"
         >
           <CheckSquare size={32} className="mb-2" />
           <h3 className="text-lg font-bold">All Tasks</h3>
-          <p className="text-sm text-blue-100 mt-1">Comprehensive task list</p>
+          <p className="text-sm text-brand-100 mt-1">Comprehensive task list</p>
         </button>
       </div>
 
@@ -1606,18 +1671,18 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
       )}
 
       {upcomingTasks.length > 0 && (
-        <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
+        <div className="bg-brand-50 border-l-4 border-brand-500 p-4 rounded-r-lg">
           <div className="flex items-start">
-            <Clock className="text-blue-600 mt-0.5 mr-3" size={20} />
+            <Clock className="text-brand-600 mt-0.5 mr-3" size={20} />
             <div className="flex-1">
-              <h3 className="font-semibold text-blue-900">Upcoming Tasks</h3>
-              <p className="text-blue-700 text-sm mt-1">
+              <h3 className="font-semibold text-brand-900">Upcoming Tasks</h3>
+              <p className="text-brand-700 text-sm mt-1">
                 {upcomingTasks.length} task{upcomingTasks.length !== 1 ? 's' : ''} due in the next 7 days.
               </p>
             </div>
             <button
               onClick={() => onNavigate('kanban')}
-              className="text-blue-600 hover:text-blue-800 transition-colors"
+              className="text-brand-600 hover:text-brand-800 transition-colors"
             >
               <ExternalLink size={18} />
             </button>
@@ -1632,7 +1697,7 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
             <h2 className="text-2xl font-bold text-gray-900">Recent Clients</h2>
             <button
               onClick={() => onNavigate('clients')}
-              className="text-blue-600 hover:text-blue-700 transition-colors"
+              className="text-brand-600 hover:text-brand-700 transition-colors"
             >
               <ExternalLink size={18} />
             </button>
@@ -1661,7 +1726,7 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
             <h2 className="text-2xl font-bold text-gray-900">Active Projects</h2>
             <button
               onClick={() => onNavigate('projects')}
-              className="text-blue-600 hover:text-blue-700 transition-colors"
+              className="text-brand-600 hover:text-brand-700 transition-colors"
             >
               <ExternalLink size={18} />
             </button>
@@ -1709,7 +1774,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
   // Fall back to "Everyone" if the saved team member no longer exists
   const effectiveMeId = (meId !== 'all' && !teamMembers.some(m => m.id === meId)) ? 'all' : meId;
 
-  const projectPalette = ['bg-blue-500', 'bg-green-500', 'bg-purple-500', 'bg-orange-500', 'bg-teal-500', 'bg-pink-500'];
+  const projectPalette = ['bg-brand-500', 'bg-green-500', 'bg-amber-500', 'bg-orange-500', 'bg-teal-500', 'bg-gray-500'];
   const projectColor = (projectId) => {
     const idx = projects.findIndex(p => p.id === projectId);
     return projectPalette[(idx < 0 ? 0 : idx) % projectPalette.length];
@@ -1787,7 +1852,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
         >
           {isDone
             ? <CheckCircle size={22} className="text-green-600" />
-            : <Circle size={22} className={isOverdue ? 'text-red-400 hover:text-red-600' : 'text-gray-300 hover:text-blue-600'} />}
+            : <Circle size={22} className={isOverdue ? 'text-red-400 hover:text-red-600' : 'text-gray-300 hover:text-brand-600'} />}
         </button>
         <div className="flex-1 min-w-0">
           <p className={`text-base font-medium ${isDone ? 'line-through text-gray-400' : 'text-gray-900'}`}>{task.title}</p>
@@ -1810,7 +1875,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
               <span className="flex items-center gap-1 text-gray-500"><Users size={14} />{client.name}</span>
             )}
             {task.phaseName && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">{task.phaseName}</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-brand-50 text-brand-600 font-medium">{task.phaseName}</span>
             )}
           </div>
         </div>
@@ -1871,7 +1936,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
         <div>
           <h2 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <Sun size={28} className="text-blue-600" /> Today
+            <Sun size={28} className="text-brand-600" /> Today
           </h2>
           <p className="text-gray-500 mt-1">
             {headerDate} · {active.length} {active.length === 1 ? 'task' : 'tasks'}
@@ -1882,7 +1947,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
           <select
             value={effectiveMeId}
             onChange={(e) => setMeId(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
             title="Viewing as"
           >
             <option value="all">Everyone</option>
@@ -1890,7 +1955,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
           </select>
           <button
             onClick={onAdd}
-            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg whitespace-nowrap"
+            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg whitespace-nowrap"
           >
             <Plus size={20} /><span>Add Task</span>
           </button>
@@ -1903,7 +1968,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
           {/* Quick add */}
           <button
             onClick={onAdd}
-            className="w-full flex items-center gap-2 px-4 py-3 mb-6 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+            className="w-full flex items-center gap-2 px-4 py-3 mb-6 rounded-lg border-2 border-dashed border-gray-300 text-gray-500 hover:border-brand-400 hover:text-brand-600 hover:bg-brand-50 transition-colors"
           >
             <Plus size={20} /><span className="font-medium">Add task</span>
           </button>
@@ -1914,7 +1979,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
                 <h3 className="text-sm font-bold text-gray-700">
                   {selectedDate.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
                 </h3>
-                <button onClick={() => setSelectedDate(null)} className="text-sm text-blue-600 hover:text-blue-700 font-medium">
+                <button onClick={() => setSelectedDate(null)} className="text-sm text-brand-600 hover:text-brand-700 font-medium">
                   ← Back to today
                 </button>
               </div>
@@ -1932,14 +1997,14 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
               <CheckCircle size={48} className="mx-auto text-green-500 mb-4" />
               <h3 className="text-xl font-semibold text-gray-900 mb-2">You're all caught up</h3>
               <p className="text-gray-600 mb-4">No open tasks{meName ? ` for ${meName}` : ''}. Add one to get started.</p>
-              <button onClick={onAdd} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors">
+              <button onClick={onAdd} className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg transition-colors">
                 Add a Task
               </button>
             </div>
           ) : (
             <div>
               {renderSection('Overdue', overdue, 'text-red-500')}
-              {renderSection('Today', todayTasks, 'text-blue-600')}
+              {renderSection('Today', todayTasks, 'text-brand-600')}
               {renderSection('Upcoming', upcoming)}
               {renderSection('No due date', noDate)}
             </div>
@@ -1990,11 +2055,11 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
                     key={i}
                     onClick={() => setSelectedDate(isSelected ? null : new Date(d))}
                     className={`relative aspect-square flex flex-col items-center justify-center rounded-lg text-sm transition-colors
-                      ${isToday ? 'bg-blue-600 text-white font-bold' : isSelected ? 'bg-blue-100 text-blue-700 font-semibold ring-2 ring-blue-400' : inMonth ? 'text-gray-700 hover:bg-gray-100' : 'text-gray-300 hover:bg-gray-50'}`}
+                      ${isToday ? 'bg-brand-600 text-white font-bold' : isSelected ? 'bg-brand-100 text-brand-700 font-semibold ring-2 ring-brand-400' : inMonth ? 'text-gray-700 hover:bg-gray-100' : 'text-gray-300 hover:bg-gray-50'}`}
                   >
                     <span>{d.getDate()}</span>
                     {hasDue && (
-                      <span className={`absolute bottom-1 w-1 h-1 rounded-full ${isToday ? 'bg-white' : 'bg-blue-500'}`}></span>
+                      <span className={`absolute bottom-1 w-1 h-1 rounded-full ${isToday ? 'bg-white' : 'bg-brand-500'}`}></span>
                     )}
                   </button>
                 );
@@ -2009,7 +2074,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
               </div>
               <div className="space-y-1 text-sm">
                 <div className="flex justify-between"><span className="text-gray-500">Overdue</span><span className="font-semibold text-red-500">{overdue.length}</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Due today</span><span className="font-semibold text-blue-600">{todayTasks.length}</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Due today</span><span className="font-semibold text-brand-600">{todayTasks.length}</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">Upcoming</span><span className="font-semibold text-gray-700">{upcoming.length}</span></div>
               </div>
             </div>
@@ -2028,7 +2093,7 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, onView, projects, tasks
         <h2 className="text-3xl font-bold text-gray-900">Clients</h2>
         <button
           onClick={onAdd}
-          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
         >
           <Plus size={20} />
           <span>Add Client</span>
@@ -2042,7 +2107,7 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, onView, projects, tasks
           <p className="text-gray-600 mb-4">Start by adding your first client to track their projects and tasks.</p>
           <button
             onClick={onAdd}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+            className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
             Add Your First Client
           </button>
@@ -2066,7 +2131,7 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, onView, projects, tasks
                   <div className="flex space-x-2">
                     <button
                       onClick={() => onEdit(client)}
-                      className="text-gray-600 hover:text-blue-600 transition-colors"
+                      className="text-gray-600 hover:text-brand-600 transition-colors"
                     >
                       <Edit2 size={18} />
                     </button>
@@ -2104,14 +2169,14 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, onView, projects, tasks
                   </div>
                   <button
                     onClick={() => onView(client)}
-                    className="w-full text-sm bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                    className="w-full text-sm bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg font-medium transition-colors"
                   >
                     View Details
                   </button>
                   {clientProjects.length > 0 && (
                     <button
                       onClick={() => onNavigate('projects')}
-                      className="w-full text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center justify-center space-x-1"
+                      className="w-full text-sm text-brand-600 hover:text-brand-700 font-medium flex items-center justify-center space-x-1"
                     >
                       <span>View Projects</span>
                       <ExternalLink size={14} />
@@ -2135,7 +2200,7 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNav
         <h2 className="text-3xl font-bold text-gray-900">Projects</h2>
         <button
           onClick={onAdd}
-          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
         >
           <Plus size={20} />
           <span>Add Project</span>
@@ -2149,7 +2214,7 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNav
           <p className="text-gray-600 mb-4">Create your first project to start managing tasks.</p>
           <button
             onClick={onAdd}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+            className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
             Create Your First Project
           </button>
@@ -2172,7 +2237,7 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNav
                     {client && (
                       <button
                         onClick={() => onNavigate('clients')}
-                        className="text-gray-600 hover:text-blue-600 transition-colors mb-2 text-sm flex items-center space-x-1"
+                        className="text-gray-600 hover:text-brand-600 transition-colors mb-2 text-sm flex items-center space-x-1"
                       >
                         <Users size={14} />
                         <span>Client: {client.name}</span>
@@ -2186,7 +2251,7 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNav
                     <div className="flex items-center space-x-6 text-sm">
                       <button
                         onClick={() => onNavigate('tasks')}
-                        className="text-gray-600 hover:text-blue-600 transition-colors flex items-center space-x-1"
+                        className="text-gray-600 hover:text-brand-600 transition-colors flex items-center space-x-1"
                       >
                         <CheckSquare size={14} />
                         <span>Tasks: {completedTasks.length}/{projectTasks.length} completed</span>
@@ -2203,7 +2268,7 @@ function ProjectsView({ projects, clients, tasks, onAdd, onEdit, onDelete, onNav
                   <div className="flex space-x-2 ml-4">
                     <button
                       onClick={() => onEdit(project)}
-                      className="text-gray-600 hover:text-blue-600 transition-colors"
+                      className="text-gray-600 hover:text-brand-600 transition-colors"
                     >
                       <Edit2 size={18} />
                     </button>
@@ -2297,7 +2362,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
-          className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
         >
           <option value="all">All Tasks</option>
           {loadBoardColumns().map(c => (
@@ -2306,7 +2371,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
         </select>
         <button
           onClick={onAdd}
-          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
         >
           <Plus size={20} />
           <span>Add Task</span>
@@ -2322,7 +2387,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
           <p className="text-gray-600 mb-4">Create your first task to get started.</p>
           <button
             onClick={onAdd}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+            className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
             Create Your First Task
           </button>
@@ -2343,7 +2408,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
                   <div className="flex items-center space-x-4">
                     {isExpanded ? <ChevronDown size={20} className="text-gray-600" /> : <ChevronRight size={20} className="text-gray-600" />}
                     <div className="flex items-center space-x-3">
-                      <div className={`w-3 h-3 rounded-full ${group.id === 'no-client' ? 'bg-gray-400' : 'bg-blue-500'}`}></div>
+                      <div className={`w-3 h-3 rounded-full ${group.id === 'no-client' ? 'bg-gray-400' : 'bg-brand-500'}`}></div>
                       <div className="text-left">
                         <h3 className="text-lg font-bold text-gray-900">{group.name}</h3>
                         {group.client && group.client.company && (
@@ -2356,7 +2421,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
                     <span className="text-sm text-gray-600">
                       {completedCount}/{group.tasks.length} completed
                     </span>
-                    <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-semibold">
+                    <span className="px-3 py-1 bg-brand-100 text-brand-700 rounded-full text-sm font-semibold">
                       {group.tasks.length} {group.tasks.length === 1 ? 'task' : 'tasks'}
                     </span>
                   </div>
@@ -2415,7 +2480,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
                                     </span>
                                   )}
                                   {task.phase && (
-                                    <span className="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded-full font-medium">
+                                    <span className="px-2 py-1 bg-brand-100 text-brand-700 text-xs rounded-full font-medium">
                                       {task.phaseName}
                                     </span>
                                   )}
@@ -2436,8 +2501,8 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
                                     onClick={() => onUpdateStatus(task.id, { ...task, status: 'in-progress' })}
                                     className={`px-3 py-1 rounded text-xs transition-colors ${
                                       task.status === 'in-progress'
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                                        ? 'bg-brand-600 text-white'
+                                        : 'bg-brand-100 text-brand-700 hover:bg-brand-200'
                                     }`}
                                   >
                                     In Progress
@@ -2458,7 +2523,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
                               <div className="flex space-x-2 ml-4">
                                 <button
                                   onClick={() => onEdit(task)}
-                                  className="text-gray-600 hover:text-blue-600 transition-colors"
+                                  className="text-gray-600 hover:text-brand-600 transition-colors"
                                 >
                                   <Edit2 size={16} />
                                 </button>
@@ -2500,14 +2565,14 @@ function ResourcesView({ resources, onAddLink, onEditLink, onDeleteLink }) {
       {/* Header with Add Button */}
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center space-x-2">
-          <Link size={24} className="text-blue-600" />
+          <Link size={24} className="text-brand-600" />
           <h3 className="text-xl font-semibold text-gray-900">
             Team Resources ({resources.links?.length || 0})
           </h3>
         </div>
         <button
           onClick={() => { setEditingLink(null); setShowLinkModal(true); }}
-          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
         >
           <Plus size={20} />
           <span>Add Link</span>
@@ -2515,8 +2580,8 @@ function ResourcesView({ resources, onAddLink, onEditLink, onDeleteLink }) {
       </div>
 
       {/* Info Box */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-        <p className="text-sm text-blue-800">
+      <div className="bg-brand-50 border border-brand-200 rounded-lg p-4 mb-6">
+        <p className="text-sm text-brand-800">
           <strong>💡 Tip:</strong> Share training materials, documentation, and helpful websites. 
           Link to Google Drive, Dropbox, or any external resource your team needs!
         </p>
@@ -2532,7 +2597,7 @@ function ResourcesView({ resources, onAddLink, onEditLink, onDeleteLink }) {
           </p>
           <button
             onClick={() => { setEditingLink(null); setShowLinkModal(true); }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+            className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
             Add Your First Link
           </button>
@@ -2546,13 +2611,13 @@ function ResourcesView({ resources, onAddLink, onEditLink, onDeleteLink }) {
             >
               <div className="flex justify-between items-start mb-3">
                 <div className="flex items-center space-x-2 flex-1">
-                  <ExternalLink size={20} className="text-blue-600 flex-shrink-0" />
+                  <ExternalLink size={20} className="text-brand-600 flex-shrink-0" />
                   <h4 className="font-bold text-gray-900 text-lg leading-tight">{link.title}</h4>
                 </div>
                 <div className="flex space-x-1">
                   <button
                     onClick={() => { setEditingLink(link); setShowLinkModal(true); }}
-                    className="p-1.5 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                    className="p-1.5 text-gray-600 hover:text-brand-600 hover:bg-brand-50 rounded transition-colors"
                     title="Edit"
                   >
                     <Edit2 size={16} />
@@ -2575,7 +2640,7 @@ function ResourcesView({ resources, onAddLink, onEditLink, onDeleteLink }) {
                 href={link.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="block w-full text-center bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors mb-3"
+                className="block w-full text-center bg-brand-50 hover:bg-brand-100 text-brand-700 px-4 py-2 rounded-lg text-sm font-medium transition-colors mb-3"
               >
                 Visit Link →
               </a>
@@ -2586,7 +2651,7 @@ function ResourcesView({ resources, onAddLink, onEditLink, onDeleteLink }) {
                   href={link.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-700 truncate max-w-[150px]"
+                  className="text-brand-600 hover:text-brand-700 truncate max-w-[150px]"
                   title={link.url}
                 >
                   {link.url.replace(/^https?:\/\//, '').split('/')[0]}
@@ -2659,7 +2724,7 @@ function LinkModal({ link, onSave, onClose }) {
               type="text"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="e.g., PBB Training Portal"
               required
             />
@@ -2673,7 +2738,7 @@ function LinkModal({ link, onSave, onClose }) {
               type="url"
               value={formData.url}
               onChange={(e) => setFormData({ ...formData, url: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="https://example.com"
               required
             />
@@ -2686,7 +2751,7 @@ function LinkModal({ link, onSave, onClose }) {
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="Brief description of this resource..."
               rows="3"
             />
@@ -2695,7 +2760,7 @@ function LinkModal({ link, onSave, onClose }) {
           <div className="flex space-x-3 pt-4">
             <button
               type="submit"
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="flex-1 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
               Save Link
             </button>
@@ -2795,7 +2860,7 @@ function TableView({ tasks, projects, clients, teamMembers, onEditTask, onUpdate
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
           >
             <option value="all">All Status</option>
             {loadBoardColumns().map(c => (
@@ -2805,7 +2870,7 @@ function TableView({ tasks, projects, clients, teamMembers, onEditTask, onUpdate
           <select
             value={filterAssignee}
             onChange={(e) => setFilterAssignee(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
           >
             <option value="all">All Team Members</option>
             {teamMembers.map(member => (
@@ -2932,7 +2997,7 @@ function TableView({ tasks, projects, clients, teamMembers, onEditTask, onUpdate
                       <td className="px-6 py-4">
                         <button
                           onClick={() => onEditTask(task)}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                          className="text-brand-600 hover:text-brand-700 text-sm font-medium"
                         >
                           Edit
                         </button>
@@ -2946,8 +3011,8 @@ function TableView({ tasks, projects, clients, teamMembers, onEditTask, onUpdate
         </div>
       </div>
 
-      <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <p className="text-sm text-blue-800">
+      <div className="mt-6 bg-brand-50 border border-brand-200 rounded-lg p-4">
+        <p className="text-sm text-brand-800">
           <strong>💡 Tip:</strong> Click column headers to sort. Use filters to narrow your view. Click "Edit" to update task details.
         </p>
       </div>
@@ -2960,9 +3025,12 @@ function AnalyticsView({ tasks, projects, clients, teamMembers }) {
   // Calculate statistics
   const totalTasks = tasks.length;
   const completedTasks = tasks.filter(t => t.status === 'completed').length;
-  const inProgressTasks = tasks.filter(t => t.status === 'in-progress').length;
-  const todoTasks = tasks.filter(t => t.status === 'todo').length;
   const overdueTasks = tasks.filter(t => isTaskOverdue(t)).length;
+  // Per-column breakdown (built-ins + any custom Kanban columns)
+  const statusCounts = loadBoardColumns().map(col => ({
+    ...col,
+    count: tasks.filter(t => t.status === col.id).length
+  }));
 
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
@@ -3004,7 +3072,7 @@ function AnalyticsView({ tasks, projects, clients, teamMembers }) {
         <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-gray-600">Total Tasks</span>
-            <CheckSquare size={20} className="text-blue-600" />
+            <CheckSquare size={20} className="text-brand-600" />
           </div>
           <p className="text-3xl font-bold text-gray-900">{totalTasks}</p>
           <p className="text-sm text-gray-600 mt-1">Across all projects</p>
@@ -3022,7 +3090,7 @@ function AnalyticsView({ tasks, projects, clients, teamMembers }) {
         <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-gray-600">Active Projects</span>
-            <FolderKanban size={20} className="text-purple-600" />
+            <FolderKanban size={20} className="text-brand-600" />
           </div>
           <p className="text-3xl font-bold text-gray-900">{activeProjects}</p>
           <p className="text-sm text-gray-600 mt-1">Currently in progress</p>
@@ -3043,33 +3111,20 @@ function AnalyticsView({ tasks, projects, clients, teamMembers }) {
         <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Task Status</h3>
           <div className="space-y-3">
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-600">To Do</span>
-                <span className="font-semibold text-gray-900">{todoTasks} ({totalTasks > 0 ? Math.round((todoTasks/totalTasks)*100) : 0}%)</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div className="bg-gray-600 h-2 rounded-full" style={{ width: `${totalTasks > 0 ? (todoTasks/totalTasks)*100 : 0}%` }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-600">In Progress</span>
-                <span className="font-semibold text-gray-900">{inProgressTasks} ({totalTasks > 0 ? Math.round((inProgressTasks/totalTasks)*100) : 0}%)</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div className="bg-blue-600 h-2 rounded-full" style={{ width: `${totalTasks > 0 ? (inProgressTasks/totalTasks)*100 : 0}%` }}></div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-600">Completed</span>
-                <span className="font-semibold text-gray-900">{completedTasks} ({completionRate}%)</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div className="bg-green-600 h-2 rounded-full" style={{ width: `${completionRate}%` }}></div>
-              </div>
-            </div>
+            {statusCounts.map(col => {
+              const pct = totalTasks > 0 ? Math.round((col.count / totalTasks) * 100) : 0;
+              return (
+                <div key={col.id}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-600">{col.label}</span>
+                    <span className="font-semibold text-gray-900">{col.count} ({pct}%)</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div className={`${COLUMN_BAR_COLORS[col.color] || 'bg-gray-600'} h-2 rounded-full`} style={{ width: `${pct}%` }}></div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -3084,7 +3139,7 @@ function AnalyticsView({ tasks, projects, clients, teamMembers }) {
                   <span className="font-semibold text-gray-900">{member.total} tasks</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-purple-600 h-2 rounded-full" style={{ width: `${(member.total / totalTasks) * 100}%` }}></div>
+                  <div className="bg-brand-600 h-2 rounded-full" style={{ width: `${(member.total / totalTasks) * 100}%` }}></div>
                 </div>
               </div>
             ))}
@@ -3095,7 +3150,7 @@ function AnalyticsView({ tasks, projects, clients, teamMembers }) {
                   <span className="font-semibold text-gray-900">{unassignedTasks} tasks</span>
                 </div>
                 <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-orange-600 h-2 rounded-full" style={{ width: `${(unassignedTasks / totalTasks) * 100}%` }}></div>
+                  <div className="bg-gray-400 h-2 rounded-full" style={{ width: `${(unassignedTasks / totalTasks) * 100}%` }}></div>
                 </div>
               </div>
             )}
@@ -3128,7 +3183,7 @@ function AnalyticsView({ tasks, projects, clients, teamMembers }) {
                     <div className="flex items-center space-x-2">
                       <div className="flex-1 bg-gray-200 rounded-full h-2 max-w-[100px]">
                         <div 
-                          className="bg-blue-600 h-2 rounded-full" 
+                          className="bg-brand-600 h-2 rounded-full" 
                           style={{ width: `${project.completionRate}%` }}
                         ></div>
                       </div>
@@ -3153,7 +3208,7 @@ function TeamView({ teamMembers, tasks, onAdd, onEdit, onDelete }) {
         <h2 className="text-3xl font-bold text-gray-900">Team Members</h2>
         <button
           onClick={onAdd}
-          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
         >
           <Plus size={20} />
           <span>Add Team Member</span>
@@ -3167,7 +3222,7 @@ function TeamView({ teamMembers, tasks, onAdd, onEdit, onDelete }) {
           <p className="text-gray-600 mb-4">Add your team members to assign tasks.</p>
           <button
             onClick={onAdd}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+            className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg transition-colors"
           >
             Add Your First Team Member
           </button>
@@ -3188,7 +3243,7 @@ function TeamView({ teamMembers, tasks, onAdd, onEdit, onDelete }) {
                   <div className="flex space-x-2">
                     <button
                       onClick={() => onEdit(member)}
-                      className="text-gray-600 hover:text-blue-600 transition-colors"
+                      className="text-gray-600 hover:text-brand-600 transition-colors"
                     >
                       <Edit2 size={18} />
                     </button>
@@ -3221,32 +3276,22 @@ function TeamView({ teamMembers, tasks, onAdd, onEdit, onDelete }) {
 }
 
 // Utility Components
-function StatCard({ label, value, icon: Icon, color, onClick }) {
-  const colorClasses = {
-    blue: 'bg-white border-l-4 border-l-blue-500 hover:shadow-lg',
-    green: 'bg-white border-l-4 border-l-green-500 hover:shadow-lg',
-    purple: 'bg-white border-l-4 border-l-purple-500 hover:shadow-lg',
-    orange: 'bg-white border-l-4 border-l-orange-500 hover:shadow-lg'
-  };
-  
-  const iconColorClasses = {
-    blue: 'text-blue-500',
-    green: 'text-green-500', 
-    purple: 'text-purple-500',
-    orange: 'text-orange-500'
-  };
+function StatCard({ label, value, icon: Icon, onClick }) {
+  // Uniform brass accent for all stat cards
+  const cardClass = 'bg-white border-l-4 border-l-brand-500 hover:shadow-lg';
+  const iconClass = 'text-brand-500';
   
   return (
     <button
       onClick={onClick}
-      className={`rounded-lg border border-gray-200 p-6 ${colorClasses[color]} shadow-md transition-all text-left w-full`}
+      className={`rounded-lg border border-gray-200 p-6 ${cardClass} shadow-md transition-all text-left w-full`}
     >
       <div className="flex items-start justify-between">
         <div>
           <p className="text-sm font-medium text-gray-600 uppercase tracking-wide">{label}</p>
           <p className="text-4xl font-bold text-gray-900 mt-2">{value}</p>
         </div>
-        <Icon size={36} className={`${iconColorClasses[color]} opacity-60`} />
+        <Icon size={36} className={`${iconClass} opacity-60`} />
       </div>
     </button>
   );
@@ -3255,10 +3300,10 @@ function StatCard({ label, value, icon: Icon, color, onClick }) {
 function StatusBadge({ status }) {
   const statusConfig = {
     'todo': { label: 'To Do', class: 'bg-gray-100 text-gray-700' },
-    'in-progress': { label: 'In Progress', class: 'bg-blue-100 text-blue-700' },
+    'in-progress': { label: 'In Progress', class: 'bg-brand-100 text-brand-700' },
     'completed': { label: 'Completed', class: 'bg-green-100 text-green-700' },
-    'planning': { label: 'Planning', class: 'bg-purple-100 text-purple-700' },
-    'active': { label: 'Active', class: 'bg-blue-100 text-blue-700' },
+    'planning': { label: 'Planning', class: 'bg-amber-100 text-amber-700' },
+    'active': { label: 'Active', class: 'bg-brand-100 text-brand-700' },
     'on-hold': { label: 'On Hold', class: 'bg-yellow-100 text-yellow-700' }
   };
   
@@ -3319,7 +3364,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="text"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="John Doe"
                 autoFocus
                 required
@@ -3334,7 +3379,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="text"
                 value={formData.company}
                 onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="Acme Corp"
               />
             </div>
@@ -3347,7 +3392,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="email"
                 value={formData.email}
                 onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="john@acme.com"
               />
             </div>
@@ -3360,7 +3405,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="tel"
                 value={formData.phone}
                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="(555) 123-4567"
               />
             </div>
@@ -3372,7 +3417,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
               <select
                 value={formData.assignedTo}
                 onChange={(e) => setFormData({ ...formData, assignedTo: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 <option value="">Unassigned</option>
                 {teamMembers.map(member => (
@@ -3389,7 +3434,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="text"
                 value={formData.populationSize}
                 onChange={(e) => setFormData({ ...formData, populationSize: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="e.g., 50,000"
               />
             </div>
@@ -3402,7 +3447,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
                 type="date"
                 value={formData.yearEndDate}
                 onChange={(e) => setFormData({ ...formData, yearEndDate: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
               <p className="text-xs text-gray-500 mt-1">Fiscal year-end date for this client</p>
             </div>
@@ -3419,7 +3464,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
               <textarea
                 value={formData.valueProposition}
                 onChange={(e) => setFormData({ ...formData, valueProposition: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="What value is the entity to get out of the project?"
                 rows="3"
               />
@@ -3432,7 +3477,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
               <textarea
                 value={formData.problemIssue}
                 onChange={(e) => setFormData({ ...formData, problemIssue: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="Why is the entity switching to PBB now?"
                 rows="3"
               />
@@ -3445,7 +3490,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
               <textarea
                 value={formData.goalMetric}
                 onChange={(e) => setFormData({ ...formData, goalMetric: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="What is the measure of success for the project?"
                 rows="2"
               />
@@ -3458,7 +3503,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
               <textarea
                 value={formData.expectedDeliverables}
                 onChange={(e) => setFormData({ ...formData, expectedDeliverables: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="What is the client expecting to receive from us?"
                 rows="3"
               />
@@ -3468,7 +3513,7 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
           <div className="flex space-x-3 pt-4">
             <button
               type="submit"
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="flex-1 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
               Save Client
             </button>
@@ -3494,21 +3539,21 @@ function ClientDetailView({ client, teamMembers, onClose, onEdit }) {
     <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="modal-content bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-5 flex justify-between items-center rounded-t-lg">
+        <div className="sticky top-0 bg-gradient-to-r from-brand-600 to-brand-700 px-6 py-5 flex justify-between items-center rounded-t-lg">
           <div>
             <h2 className="text-2xl font-bold text-white">{client.name}</h2>
-            {client.company && <p className="text-blue-100 mt-1">{client.company}</p>}
+            {client.company && <p className="text-brand-100 mt-1">{client.company}</p>}
           </div>
           <div className="flex space-x-2">
             <button
               onClick={onEdit}
-              className="px-4 py-2 bg-white hover:bg-blue-50 text-blue-700 rounded-lg transition-colors font-medium"
+              className="px-4 py-2 bg-white hover:bg-brand-50 text-brand-700 rounded-lg transition-colors font-medium"
             >
               Edit
             </button>
             <button
               onClick={onClose}
-              className="px-4 py-2 bg-blue-800 hover:bg-blue-900 text-white rounded-lg transition-colors"
+              className="px-4 py-2 bg-brand-800 hover:bg-brand-900 text-white rounded-lg transition-colors"
             >
               Close
             </button>
@@ -3520,7 +3565,7 @@ function ClientDetailView({ client, teamMembers, onClose, onEdit }) {
           {/* Basic Information */}
           <div className="bg-gray-50 rounded-lg p-5 border border-gray-200">
             <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-              <Users size={20} className="mr-2 text-blue-600" />
+              <Users size={20} className="mr-2 text-brand-600" />
               Contact Information
             </h3>
             <div className="grid md:grid-cols-2 gap-4">
@@ -3550,32 +3595,32 @@ function ClientDetailView({ client, teamMembers, onClose, onEdit }) {
           </div>
 
           {/* Strategic Information */}
-          <div className="bg-blue-50 rounded-lg p-5 border border-blue-200">
+          <div className="bg-brand-50 rounded-lg p-5 border border-brand-200">
             <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center">
-              <LayoutDashboard size={20} className="mr-2 text-blue-600" />
+              <LayoutDashboard size={20} className="mr-2 text-brand-600" />
               Project Strategy
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-semibold text-blue-900">Value Proposition</label>
+                <label className="text-sm font-semibold text-brand-900">Value Proposition</label>
                 <p className="text-gray-800 mt-1 whitespace-pre-wrap">
                   {client.valueProposition || 'Not specified'}
                 </p>
               </div>
               <div>
-                <label className="text-sm font-semibold text-blue-900">Problem or Issue</label>
+                <label className="text-sm font-semibold text-brand-900">Problem or Issue</label>
                 <p className="text-gray-800 mt-1 whitespace-pre-wrap">
                   {client.problemIssue || 'Not specified'}
                 </p>
               </div>
               <div>
-                <label className="text-sm font-semibold text-blue-900">Goal/Metric</label>
+                <label className="text-sm font-semibold text-brand-900">Goal/Metric</label>
                 <p className="text-gray-800 mt-1 whitespace-pre-wrap">
                   {client.goalMetric || 'Not specified'}
                 </p>
               </div>
               <div>
-                <label className="text-sm font-semibold text-blue-900">Expected Deliverables</label>
+                <label className="text-sm font-semibold text-brand-900">Expected Deliverables</label>
                 <p className="text-gray-800 mt-1 whitespace-pre-wrap">
                   {client.expectedDeliverables || 'Not specified'}
                 </p>
@@ -3624,7 +3669,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="Q4 Implementation"
               required
             />
@@ -3637,7 +3682,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="Project details..."
               rows="3"
             />
@@ -3650,7 +3695,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
             <select
               value={formData.clientId}
               onChange={(e) => setFormData({ ...formData, clientId: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="">Select a client (optional)</option>
               {clients.map(client => (
@@ -3666,7 +3711,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
             <select
               value={formData.status}
               onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="planning">Planning</option>
               <option value="active">Active</option>
@@ -3684,7 +3729,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
                 type="date"
                 value={formData.startDate}
                 onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
             
@@ -3696,19 +3741,19 @@ function ProjectModal({ project, clients, onSave, onClose }) {
                 type="date"
                 value={formData.endDate}
                 onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
           </div>
 
           {!project && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div className="bg-brand-50 border border-brand-200 rounded-lg p-4">
               <label className="flex items-center space-x-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={usePBBTemplate}
                   onChange={(e) => setUsePBBTemplate(e.target.checked)}
-                  className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-2 focus:ring-blue-500"
+                  className="w-5 h-5 text-brand-600 border-gray-300 rounded focus:ring-2 focus:ring-brand-500"
                 />
                 <div>
                   <span className="font-semibold text-gray-900">Use PBB Template</span>
@@ -3723,7 +3768,7 @@ function ProjectModal({ project, clients, onSave, onClose }) {
           <div className="flex space-x-3 pt-4">
             <button
               type="submit"
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="flex-1 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
               Save Project
             </button>
@@ -3835,7 +3880,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
               type="text"
               value={formData.title}
               onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="Complete onboarding"
               autoFocus
               required
@@ -3849,7 +3894,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
             <textarea
               value={formData.description}
               onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="Add notes, context, or details..."
               rows="3"
             />
@@ -3862,7 +3907,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
             <select
               value={formData.projectId}
               onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="">Select a project (optional)</option>
               {projects.map(project => {
@@ -3889,7 +3934,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
                 <select
                   value={formData.phase}
                   onChange={handlePhaseChange}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 >
                   <option value="">No specific phase</option>
                   {PBB_TEMPLATE.phases.map(phase => (
@@ -3906,7 +3951,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
                   <select
                     value={formData.section}
                     onChange={handleSectionChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                   >
                     <option value="">No specific section</option>
                     {currentPhase.sections.map(section => (
@@ -3925,7 +3970,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
             <select
               value={formData.assignedTo}
               onChange={(e) => setFormData({ ...formData, assignedTo: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
             >
               <option value="">Unassigned</option>
               {teamMembers.map(member => (
@@ -3943,7 +3988,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
                 type="date"
                 value={formData.startDate}
                 onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               />
             </div>
 
@@ -3956,7 +4001,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
                 value={formData.dueDate}
                 min={formData.startDate || undefined}
                 onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 ${dateError ? 'border-red-400 focus:ring-red-500' : 'border-gray-300 focus:ring-blue-500'}`}
+                className={`w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 ${dateError ? 'border-red-400 focus:ring-red-500' : 'border-gray-300 focus:ring-brand-500'}`}
               />
             </div>
           </div>
@@ -3972,7 +4017,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
               <select
                 value={formData.status}
                 onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 {statusColumns.map(c => (
                   <option key={c.id} value={c.id}>{c.label}</option>
@@ -3987,7 +4032,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
               <select
                 value={formData.priority}
                 onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               >
                 {PRIORITY_ORDER.map(key => (
                   <option key={key} value={key}>{PRIORITIES[key].label}</option>
@@ -4012,7 +4057,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
                     <button
                       type="button"
                       onClick={() => toggleSubtask(s.id)}
-                      className="flex-shrink-0 text-gray-300 hover:text-blue-600 transition-colors"
+                      className="flex-shrink-0 text-gray-300 hover:text-brand-600 transition-colors"
                       title={s.done ? 'Mark not done' : 'Mark done'}
                     >
                       {s.done ? <CheckCircle size={18} className="text-green-600" /> : <Circle size={18} />}
@@ -4036,7 +4081,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
                 value={newSubtask}
                 onChange={(e) => setNewSubtask(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addSubtask(); } }}
-                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="Add a sub-task and press Enter"
               />
               <button
@@ -4052,7 +4097,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
           <div className="flex space-x-3 pt-4">
             <button
               type="submit"
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="flex-1 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
               Save Task
             </button>
@@ -4102,7 +4147,7 @@ function TeamModal({ member, onSave, onClose }) {
               type="text"
               value={formData.name}
               onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="Jane Smith"
               autoFocus
               required
@@ -4117,7 +4162,7 @@ function TeamModal({ member, onSave, onClose }) {
               type="text"
               value={formData.role}
               onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="Customer Success Manager"
             />
           </div>
@@ -4130,7 +4175,7 @@ function TeamModal({ member, onSave, onClose }) {
               type="email"
               value={formData.email}
               onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
               placeholder="jane@company.com"
             />
           </div>
@@ -4138,7 +4183,7 @@ function TeamModal({ member, onSave, onClose }) {
           <div className="flex space-x-3 pt-4">
             <button
               type="submit"
-              className="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors"
+              className="flex-1 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors"
             >
               Save Team Member
             </button>
