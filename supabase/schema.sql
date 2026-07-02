@@ -299,3 +299,13 @@ alter table public.board_columns enable row level security;
 create policy "members manage board_columns" on public.board_columns
   for all using (private.is_workspace_member(workspace_id))
   with check (private.is_workspace_member(workspace_id));
+
+-- ============================================================================
+-- Every login user is also an assignable team seat
+-- (migrations: auto_team_seat_for_members, relock_invite_rpcs)
+-- ============================================================================
+-- handle_new_user / accept_invite / accept_invite_by_token now ALSO insert a
+-- public.team_members row (name = email local-part, user_id linked) so a person
+-- who can log in is immediately assignable to tasks. Existing members were
+-- backfilled. Invite RPC EXECUTE was re-locked to the `authenticated` role after
+-- the CREATE OR REPLACE reset the default grants.
