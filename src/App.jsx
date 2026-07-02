@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, ChevronLeft, List, BookOpen, FileText, Link, Download, Upload, Table, PieChart, TrendingUp, Filter, Circle, Sun } from 'lucide-react';
+import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, ChevronLeft, List, BookOpen, FileText, Link, Download, Upload, Table, PieChart, TrendingUp, Filter, Circle, Sun, LogOut } from 'lucide-react';
+import { supabase } from './supabaseClient';
 
 // PBB Template Definition
 const PBB_TEMPLATE = {
@@ -184,8 +185,147 @@ export class ErrorBoundary extends React.Component {
   }
 }
 
-export default function ClientProjectManager() {
+// Login / signup screen (email + password)
+function AuthScreen() {
+  const [mode, setMode] = useState('signin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [workspaceName, setWorkspaceName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      if (mode === 'signup') {
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: { data: { workspace_name: workspaceName.trim() || 'My Workspace' } }
+        });
+        if (error) throw error;
+        if (!data.session) {
+          setNotice('Account created. Check your email to confirm, then sign in.');
+          setMode('signin');
+        }
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+        if (error) throw error;
+      }
+    } catch (err) {
+      setError(err.message || 'Something went wrong.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl text-gray-900" style={{ fontFamily: "'Playfair Display', Georgia, serif", fontWeight: 700 }}>📋 Joan</h1>
+          <p className="text-gray-500 italic mt-1">Command your projects with boardroom authority</p>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8">
+          <h2 className="text-xl font-bold text-gray-900 mb-1">{mode === 'signup' ? 'Create your account' : 'Welcome back'}</h2>
+          <p className="text-sm text-gray-500 mb-6">{mode === 'signup' ? 'Start a new workspace.' : 'Sign in to your workspace.'}</p>
+
+          {error && <div className="mb-4 px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{error}</div>}
+          {notice && <div className="mb-4 px-4 py-3 rounded-lg bg-green-50 border border-green-200 text-sm text-green-700">{notice}</div>}
+
+          <form onSubmit={submit} className="space-y-4">
+            {mode === 'signup' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Workspace name</label>
+                <input
+                  type="text"
+                  value={workspaceName}
+                  onChange={e => setWorkspaceName(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="Muniz Consulting Group"
+                />
+              </div>
+            )}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input
+                type="email"
+                required
+                autoFocus
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                placeholder="you@example.com"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <input
+                type="password"
+                required
+                minLength={6}
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                placeholder="••••••••"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={busy}
+              className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white px-4 py-2.5 rounded-lg font-medium transition-colors"
+            >
+              {busy ? 'Please wait…' : (mode === 'signup' ? 'Create account' : 'Sign in')}
+            </button>
+          </form>
+
+          <div className="mt-6 text-center text-sm text-gray-500">
+            {mode === 'signup' ? 'Already have an account?' : "Don't have an account?"}{' '}
+            <button
+              onClick={() => { setMode(mode === 'signup' ? 'signin' : 'signup'); setError(null); setNotice(null); }}
+              className="text-brand-600 hover:text-brand-700 font-medium"
+            >
+              {mode === 'signup' ? 'Sign in' : 'Sign up'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Root: gates the app behind authentication
+export default function AppRoot() {
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, s) => setSession(s));
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="w-10 h-10 border-4 border-gray-200 border-t-brand-600 rounded-full animate-spin"></div>
+      </div>
+    );
+  }
+
+  if (!session) return <AuthScreen />;
+
+  return <ClientProjectManager session={session} onSignOut={() => supabase.auth.signOut()} />;
+}
+
+function ClientProjectManager({ session, onSignOut }) {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [workspace, setWorkspace] = useState(null);
   const [clients, setClients] = useState([]);
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -282,6 +422,24 @@ export default function ClientProjectManager() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Load the signed-in user's workspace (also exercises the RLS read path)
+  useEffect(() => {
+    if (!session?.user) return;
+    let active = true;
+    (async () => {
+      const { data, error } = await supabase
+        .from('workspace_members')
+        .select('workspace_id, workspaces(name)')
+        .eq('user_id', session.user.id)
+        .limit(1)
+        .maybeSingle();
+      if (active && !error && data) {
+        setWorkspace({ id: data.workspace_id, name: data.workspaces?.name || 'Workspace' });
+      }
+    })();
+    return () => { active = false; };
+  }, [session]);
 
   const loadData = async () => {
     // Parse a stored value, falling back to a default if it's missing,
@@ -733,12 +891,24 @@ export default function ClientProjectManager() {
         </nav>
 
         {/* Sidebar Footer */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-gray-200">
-          <div className="text-xs text-gray-500">
+        <div className="absolute bottom-0 left-0 right-0 border-t border-gray-200">
+          <div className="px-6 pt-4 text-xs text-gray-500">
             <p className="font-semibold mb-1">Quick Stats</p>
             <p>Active: {tasks.filter(t => t.status !== 'completed').length} tasks</p>
             <p>Team: {teamMembers.length} members</p>
           </div>
+          {session?.user && (
+            <div className="px-6 py-4 mt-3 border-t border-gray-100">
+              {workspace && <p className="text-xs font-semibold text-gray-700 truncate">{workspace.name}</p>}
+              <p className="text-xs text-gray-500 truncate mb-2">{session.user.email}</p>
+              <button
+                onClick={onSignOut}
+                className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-red-600 transition-colors"
+              >
+                <LogOut size={14} /> Sign out
+              </button>
+            </div>
+          )}
         </div>
       </aside>
 
