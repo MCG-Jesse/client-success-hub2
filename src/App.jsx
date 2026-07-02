@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, ChevronLeft, List, BookOpen, FileText, Link, Download, Upload, Table, PieChart, TrendingUp, Filter, Circle, Sun, LogOut } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, ChevronLeft, List, BookOpen, FileText, Link, Download, Upload, Table, PieChart, TrendingUp, Filter, Circle, Sun, LogOut, Copy } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 // PBB Template Definition
@@ -238,7 +238,7 @@ export class ErrorBoundary extends React.Component {
 }
 
 // Login / signup screen (email + password)
-function AuthScreen() {
+function AuthScreen({ joining }) {
   const [mode, setMode] = useState('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -280,6 +280,11 @@ function AuthScreen() {
           <h1 className="text-4xl text-gray-900" style={{ fontFamily: "'Playfair Display', Georgia, serif", fontWeight: 700 }}>📋 Joan</h1>
           <p className="text-gray-500 italic mt-1">Command your projects with boardroom authority</p>
         </div>
+        {joining && (
+          <div className="mb-4 px-4 py-3 rounded-lg bg-brand-50 border border-brand-200 text-sm text-brand-800 text-center">
+            You've been invited to a workspace — sign in or create an account to join.
+          </div>
+        )}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-8">
           <h2 className="text-xl font-bold text-gray-900 mb-1">{mode === 'signup' ? 'Create your account' : 'Welcome back'}</h2>
           <p className="text-sm text-gray-500 mb-6">{mode === 'signup' ? 'Start a new workspace.' : 'Sign in to your workspace.'}</p>
@@ -352,6 +357,7 @@ function AuthScreen() {
 export default function AppRoot() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [joinToken] = useState(() => new URLSearchParams(window.location.search).get('join'));
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -370,18 +376,21 @@ export default function AppRoot() {
     );
   }
 
-  if (!session) return <AuthScreen />;
+  if (!session) return <AuthScreen joining={!!joinToken} />;
 
-  return <ClientProjectManager session={session} onSignOut={() => supabase.auth.signOut()} />;
+  return <ClientProjectManager session={session} onSignOut={() => supabase.auth.signOut()} joinToken={joinToken} />;
 }
 
-function ClientProjectManager({ session, onSignOut }) {
+function ClientProjectManager({ session, onSignOut, joinToken }) {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [workspaces, setWorkspaces] = useState([]);
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(null);
   const [members, setMembers] = useState([]);
   const [wsInvites, setWsInvites] = useState([]);
+  const [linkInvites, setLinkInvites] = useState([]);
   const [pendingInvites, setPendingInvites] = useState([]);
+  const [joinPreview, setJoinPreview] = useState(null);
+  const joinCheckedRef = useRef(false);
   const [clients, setClients] = useState([]);
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -527,7 +536,7 @@ function ClientProjectManager({ session, onSignOut }) {
         supabase.from('team_members').select('*').eq('workspace_id', wsId),
         supabase.from('resources').select('*').eq('workspace_id', wsId),
         supabase.from('workspace_members').select('id, user_id, email, role').eq('workspace_id', wsId),
-        supabase.from('invites').select('id, email, role, created_at').eq('workspace_id', wsId).eq('status', 'pending')
+        supabase.from('invites').select('id, email, role, token, created_at').eq('workspace_id', wsId).eq('status', 'pending')
       ]);
       const firstErr = c.error || p.error || t.error || tm.error || r.error || mem.error || inv.error;
       if (firstErr) throw firstErr;
@@ -537,7 +546,9 @@ function ClientProjectManager({ session, onSignOut }) {
       setTeamMembers((tm.data || []).map(dbToTeam));
       setResources({ links: (r.data || []).map(dbToLink) });
       setMembers(mem.data || []);
-      setWsInvites(inv.data || []);
+      const allInvites = inv.data || [];
+      setWsInvites(allInvites.filter(i => i.email));      // email invites
+      setLinkInvites(allInvites.filter(i => i.token && !i.email)); // shareable links
     } catch (error) {
       console.error('Error loading data:', error);
       showNotification('Error loading your data. Please refresh.', 'error');
@@ -566,7 +577,57 @@ function ClientProjectManager({ session, onSignOut }) {
     if (error) return dbError('Could not revoke the invite.', error);
     showNotification('Invitation revoked.');
     setWsInvites(prev => prev.filter(i => i.id !== id));
+    setLinkInvites(prev => prev.filter(i => i.id !== id));
   };
+
+  const createInviteLink = async (role) => {
+    const token = crypto.randomUUID();
+    const { error } = await supabase.from('invites').insert({
+      workspace_id: workspace.id, workspace_name: workspace.name, email: null, role, token, invited_by: session.user.id
+    });
+    if (error) return dbError('Could not create the invite link (owners/admins only).', error);
+    showNotification('Invite link created.');
+    loadData();
+  };
+
+  const copyInviteLink = async (token) => {
+    const url = `${window.location.origin}/?join=${token}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      showNotification('Invite link copied to clipboard!');
+    } catch {
+      showNotification('Could not copy — link: ' + url, 'error');
+    }
+  };
+
+  const clearJoinUrl = () => window.history.replaceState({}, '', window.location.pathname);
+
+  const acceptJoinLink = async () => {
+    if (!joinPreview) return;
+    const { data, error } = await supabase.rpc('accept_invite_by_token', { p_token: joinPreview.token });
+    setJoinPreview(null);
+    clearJoinUrl();
+    if (error) return dbError('Could not join via that link.', error);
+    showNotification('Joined workspace!');
+    await loadWorkspaces();
+    if (data) switchWorkspace(data);
+  };
+
+  // If arriving via an invite link, look it up and prompt to join
+  useEffect(() => {
+    if (!joinToken || !session?.user || joinCheckedRef.current) return;
+    joinCheckedRef.current = true;
+    (async () => {
+      const { data, error } = await supabase.rpc('get_invite_by_token', { p_token: joinToken });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (error || !row) {
+        showNotification('That invite link is invalid or was revoked.', 'error');
+        clearJoinUrl();
+        return;
+      }
+      setJoinPreview({ ...row, token: joinToken });
+    })();
+  }, [joinToken, session]);
 
   const removeMember = async (memberRowId) => {
     if (!confirm('Remove this person from the workspace? They will lose access.')) return;
@@ -1134,9 +1195,12 @@ function ClientProjectManager({ session, onSignOut }) {
               <WorkspaceAccess
                 members={members}
                 invites={wsInvites}
+                linkInvites={linkInvites}
                 currentUserId={session.user.id}
                 canManage={canManageAccess}
                 onInvite={inviteMember}
+                onCreateLink={createInviteLink}
+                onCopyLink={copyInviteLink}
                 onRevoke={revokeInvite}
                 onRemove={removeMember}
               />
@@ -1168,6 +1232,35 @@ function ClientProjectManager({ session, onSignOut }) {
           className="fixed inset-0 bg-black bg-opacity-50 z-10 lg:hidden"
           onClick={() => setSidebarOpen(false)}
         />
+      )}
+
+      {/* Join-via-link confirmation */}
+      {joinPreview && (
+        <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="modal-content bg-white rounded-lg shadow-xl max-w-sm w-full p-6 text-center">
+            <div className="w-12 h-12 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center mx-auto mb-4">
+              <Users size={24} />
+            </div>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">Join workspace</h2>
+            <p className="text-gray-600 mb-6">
+              You've been invited to join <span className="font-semibold">{joinPreview.workspace_name}</span> as <span className="capitalize font-medium">{joinPreview.role}</span>.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={acceptJoinLink}
+                className="flex-1 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors"
+              >
+                Join workspace
+              </button>
+              <button
+                onClick={() => { setJoinPreview(null); clearJoinUrl(); }}
+                className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg transition-colors"
+              >
+                Not now
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modals */}
@@ -3495,11 +3588,13 @@ const roleBadgeClass = (r) => ({
   member: 'bg-gray-100 text-gray-600'
 }[r] || 'bg-gray-100 text-gray-600');
 
-function WorkspaceAccess({ members, invites, currentUserId, canManage, onInvite, onRevoke, onRemove }) {
+function WorkspaceAccess({ members, invites, linkInvites, currentUserId, canManage, onInvite, onCreateLink, onCopyLink, onRevoke, onRemove }) {
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('member');
+  const [linkRole, setLinkRole] = useState('member');
 
   const submit = (e) => { e.preventDefault(); onInvite(email, role); setEmail(''); setRole('member'); };
+  const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
   return (
     <div>
@@ -3536,6 +3631,49 @@ function WorkspaceAccess({ members, invites, currentUserId, canManage, onInvite,
             <Plus size={18} /> Send invite
           </button>
         </form>
+      )}
+
+      {canManage && (
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div>
+              <h3 className="text-sm font-bold text-gray-900">Invite links</h3>
+              <p className="text-xs text-gray-500">Anyone with the link can join this workspace.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <select
+                value={linkRole}
+                onChange={e => setLinkRole(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+              >
+                <option value="member">Member</option>
+                <option value="admin">Admin</option>
+              </select>
+              <button
+                onClick={() => onCreateLink(linkRole)}
+                className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm transition-colors"
+              >
+                <Link size={16} /> Create link
+              </button>
+            </div>
+          </div>
+          {linkInvites.length > 0 && (
+            <div className="space-y-2">
+              {linkInvites.map(l => (
+                <div key={l.id} className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize flex-shrink-0 ${roleBadgeClass(l.role)}`}>{l.role}</span>
+                  <code className="flex-1 text-xs text-gray-600 truncate">{origin}/?join={l.token}</code>
+                  <button onClick={() => onCopyLink(l.token)} className="text-gray-400 hover:text-brand-600 transition-colors flex-shrink-0" title="Copy link">
+                    <Copy size={16} />
+                  </button>
+                  <button onClick={() => onRevoke(l.id)} className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0" title="Revoke link">
+                    <Trash2 size={16} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden mb-6">

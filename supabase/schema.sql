@@ -247,3 +247,41 @@ end;
 $$;
 revoke execute on function public.accept_invite(uuid) from public;
 grant execute on function public.accept_invite(uuid) to authenticated;
+
+-- ============================================================================
+-- Shareable invite links (migration: shareable_invite_links)
+-- ============================================================================
+-- Link invites carry a token and no email (email invites are the reverse).
+alter table public.invites alter column email drop not null;
+alter table public.invites add column if not exists token text;
+create unique index if not exists idx_invites_token on public.invites(token) where token is not null;
+
+-- Preview a link invite (token holder sees workspace + role before joining)
+create or replace function public.get_invite_by_token(p_token text)
+returns table(workspace_id uuid, workspace_name text, role text)
+language sql security definer set search_path = public stable as $$
+  select workspace_id, workspace_name, role
+  from public.invites
+  where token = p_token and status = 'pending' and email is null
+  limit 1;
+$$;
+revoke execute on function public.get_invite_by_token(text) from public;
+grant execute on function public.get_invite_by_token(text) to authenticated;
+
+-- Join via link (reusable until the invite row is revoked)
+create or replace function public.accept_invite_by_token(p_token text)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare inv record; uemail text;
+begin
+  select email into uemail from auth.users where id = auth.uid();
+  select * into inv from public.invites
+    where token = p_token and status = 'pending' and email is null limit 1;
+  if inv is null then raise exception 'This invite link is invalid or has been revoked'; end if;
+  insert into public.workspace_members (workspace_id, user_id, role, email)
+    values (inv.workspace_id, auth.uid(), inv.role, uemail)
+    on conflict (workspace_id, user_id) do nothing;
+  return inv.workspace_id;
+end;
+$$;
+revoke execute on function public.accept_invite_by_token(text) from public;
+grant execute on function public.accept_invite_by_token(text) to authenticated;
