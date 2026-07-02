@@ -377,7 +377,11 @@ export default function AppRoot() {
 
 function ClientProjectManager({ session, onSignOut }) {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [workspace, setWorkspace] = useState(null);
+  const [workspaces, setWorkspaces] = useState([]);
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [wsInvites, setWsInvites] = useState([]);
+  const [pendingInvites, setPendingInvites] = useState([]);
   const [clients, setClients] = useState([]);
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -453,51 +457,87 @@ function ClientProjectManager({ session, onSignOut }) {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // On login: load the user's workspace (RLS read), then load its data
+  // Current workspace (derived) + the caller's role in it
+  const workspace = workspaces.find(w => w.id === currentWorkspaceId) || null;
+  const myRole = workspace?.role || 'member';
+  const canManageAccess = myRole === 'owner' || myRole === 'admin';
+
+  // On login: load all workspaces the user belongs to, plus any pending invites
   useEffect(() => {
     if (!session?.user) return;
-    let active = true;
-    (async () => {
-      const { data, error } = await supabase
-        .from('workspace_members')
-        .select('workspace_id, workspaces(name)')
-        .eq('user_id', session.user.id)
-        .limit(1)
-        .maybeSingle();
-      if (!active) return;
-      if (error || !data) {
-        console.error('Workspace load failed:', error);
-        showNotification('Could not load your workspace.', 'error');
-        setLoading(false);
-        return;
-      }
-      setWorkspace({ id: data.workspace_id, name: data.workspaces?.name || 'Workspace' });
-    })();
-    return () => { active = false; };
+    loadWorkspaces();
+    loadInvites();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
+  // Reload workspace data whenever the active workspace changes
   useEffect(() => {
-    if (workspace?.id) loadData();
+    if (currentWorkspaceId) loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspace?.id]);
+  }, [currentWorkspaceId]);
+
+  const loadWorkspaces = async () => {
+    const { data, error } = await supabase
+      .from('workspace_members')
+      .select('workspace_id, role, workspaces(name)')
+      .eq('user_id', session.user.id);
+    if (error || !data) {
+      console.error('Workspace load failed:', error);
+      showNotification('Could not load your workspaces.', 'error');
+      setLoading(false);
+      return;
+    }
+    const ws = data
+      .filter(r => r.workspaces)
+      .map(r => ({ id: r.workspace_id, name: r.workspaces.name || 'Workspace', role: r.role }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    setWorkspaces(ws);
+    const saved = localStorage.getItem('current-workspace');
+    const pick = ws.find(w => w.id === saved) || ws[0];
+    if (pick) setCurrentWorkspaceId(pick.id);
+    else setLoading(false);
+  };
+
+  const loadInvites = async () => {
+    const email = (session.user.email || '').toLowerCase();
+    const { data } = await supabase
+      .from('invites')
+      .select('id, role, workspace_id, workspace_name')
+      .eq('status', 'pending')
+      .eq('email', email);
+    setPendingInvites(data || []);
+  };
+
+  const switchWorkspace = (id) => {
+    if (id === currentWorkspaceId) return;
+    localStorage.setItem('current-workspace', id);
+    setCurrentWorkspaceId(id);
+    setActiveTab('dashboard');
+  };
 
   const loadData = async () => {
-    if (!workspace?.id) { setLoading(false); return; }
+    const wsId = currentWorkspaceId;
+    if (!wsId) { setLoading(false); return; }
+    localStorage.setItem('current-workspace', wsId);
     try {
-      const [c, p, t, tm, r] = await Promise.all([
-        supabase.from('clients').select('*').eq('workspace_id', workspace.id),
-        supabase.from('projects').select('*').eq('workspace_id', workspace.id),
-        supabase.from('tasks').select('*').eq('workspace_id', workspace.id),
-        supabase.from('team_members').select('*').eq('workspace_id', workspace.id),
-        supabase.from('resources').select('*').eq('workspace_id', workspace.id)
+      const [c, p, t, tm, r, mem, inv] = await Promise.all([
+        supabase.from('clients').select('*').eq('workspace_id', wsId),
+        supabase.from('projects').select('*').eq('workspace_id', wsId),
+        supabase.from('tasks').select('*').eq('workspace_id', wsId),
+        supabase.from('team_members').select('*').eq('workspace_id', wsId),
+        supabase.from('resources').select('*').eq('workspace_id', wsId),
+        supabase.from('workspace_members').select('id, user_id, email, role').eq('workspace_id', wsId),
+        supabase.from('invites').select('id, email, role, created_at').eq('workspace_id', wsId).eq('status', 'pending')
       ]);
-      const firstErr = c.error || p.error || t.error || tm.error || r.error;
+      const firstErr = c.error || p.error || t.error || tm.error || r.error || mem.error || inv.error;
       if (firstErr) throw firstErr;
       setClients((c.data || []).map(dbToClient));
       setProjects((p.data || []).map(dbToProject));
       setTasks((t.data || []).map(dbToTask));
       setTeamMembers((tm.data || []).map(dbToTeam));
       setResources({ links: (r.data || []).map(dbToLink) });
+      setMembers(mem.data || []);
+      setWsInvites(inv.data || []);
     } catch (error) {
       console.error('Error loading data:', error);
       showNotification('Error loading your data. Please refresh.', 'error');
@@ -507,6 +547,47 @@ function ClientProjectManager({ session, onSignOut }) {
   };
 
   const dbError = (msg, error) => { console.error(msg, error); showNotification(msg, 'error'); };
+
+  // Workspace access (invites, members, roles)
+  const inviteMember = async (email, role) => {
+    const e = (email || '').trim().toLowerCase();
+    if (!e) return;
+    if (members.some(m => (m.email || '').toLowerCase() === e)) return showNotification('That person is already a member.', 'error');
+    if (wsInvites.some(i => (i.email || '').toLowerCase() === e)) return showNotification('An invite is already pending for that email.', 'error');
+    const { error } = await supabase.from('invites')
+      .insert({ workspace_id: workspace.id, workspace_name: workspace.name, email: e, role, invited_by: session.user.id });
+    if (error) return dbError('Could not create the invite (owners/admins only).', error);
+    showNotification('Invitation created.');
+    loadData();
+  };
+
+  const revokeInvite = async (id) => {
+    const { error } = await supabase.from('invites').delete().eq('id', id);
+    if (error) return dbError('Could not revoke the invite.', error);
+    showNotification('Invitation revoked.');
+    setWsInvites(prev => prev.filter(i => i.id !== id));
+  };
+
+  const removeMember = async (memberRowId) => {
+    if (!confirm('Remove this person from the workspace? They will lose access.')) return;
+    const { error } = await supabase.from('workspace_members').delete().eq('id', memberRowId);
+    if (error) return dbError('Could not remove the member.', error);
+    showNotification('Member removed.');
+    setMembers(prev => prev.filter(m => m.id !== memberRowId));
+  };
+
+  const acceptInvite = async (invite) => {
+    const { error } = await supabase.rpc('accept_invite', { p_invite_id: invite.id });
+    if (error) return dbError('Could not accept the invitation.', error);
+    showNotification('Invitation accepted!');
+    setPendingInvites(prev => prev.filter(i => i.id !== invite.id));
+    await loadWorkspaces();
+    switchWorkspace(invite.workspace_id);
+  };
+
+  const declineInvite = (inviteId) => {
+    setPendingInvites(prev => prev.filter(i => i.id !== inviteId));
+  };
 
   // Resource functions - Links only
   const addLink = async (link) => {
@@ -898,9 +979,20 @@ function ClientProjectManager({ session, onSignOut }) {
             <p>Team: {teamMembers.length} members</p>
           </div>
           {session?.user && (
-            <div className="px-6 py-4 mt-3 border-t border-gray-100">
-              {workspace && <p className="text-xs font-semibold text-gray-700 truncate">{workspace.name}</p>}
-              <p className="text-xs text-gray-500 truncate mb-2">{session.user.email}</p>
+            <div className="px-6 py-4 mt-3 border-t border-gray-100 space-y-2">
+              {workspaces.length > 1 ? (
+                <select
+                  value={currentWorkspaceId || ''}
+                  onChange={(e) => switchWorkspace(e.target.value)}
+                  className="w-full text-xs font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  title="Switch workspace"
+                >
+                  {workspaces.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                </select>
+              ) : (
+                workspace && <p className="text-xs font-semibold text-gray-700 truncate">{workspace.name}</p>
+              )}
+              <p className="text-xs text-gray-500 truncate">{session.user.email} · <span className="capitalize">{myRole}</span></p>
               <button
                 onClick={onSignOut}
                 className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-red-600 transition-colors"
@@ -917,6 +1009,21 @@ function ClientProjectManager({ session, onSignOut }) {
         sidebarOpen ? 'lg:ml-64' : 'ml-0'
       }`}>
         <div className="p-8 bg-gray-50 min-h-screen">
+          {pendingInvites.length > 0 && (
+            <div className="mb-6 space-y-3">
+              {pendingInvites.map(inv => (
+                <div key={inv.id} className="flex flex-wrap items-center justify-between gap-4 bg-brand-50 border border-brand-200 rounded-lg px-5 py-4">
+                  <div className="text-sm text-gray-700">
+                    You've been invited to <span className="font-semibold">{inv.workspace_name || 'a workspace'}</span> as <span className="capitalize font-medium">{inv.role}</span>.
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button onClick={() => acceptInvite(inv)} className="bg-brand-600 hover:bg-brand-700 text-white text-sm px-4 py-1.5 rounded-lg transition-colors">Accept</button>
+                    <button onClick={() => declineInvite(inv.id)} className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5">Dismiss</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
           <ErrorBoundary key={activeTab}>
           {activeTab === 'dashboard' && (
             <DashboardView
@@ -1023,13 +1130,24 @@ function ClientProjectManager({ session, onSignOut }) {
           )}
           
           {activeTab === 'team' && (
-            <TeamView
-              teamMembers={teamMembers}
-              tasks={tasks}
-              onAdd={() => { setEditingItem(null); setShowTeamModal(true); }}
-              onEdit={(member) => { setEditingItem(member); setShowTeamModal(true); }}
-              onDelete={deleteTeamMember}
-            />
+            <div className="space-y-10">
+              <WorkspaceAccess
+                members={members}
+                invites={wsInvites}
+                currentUserId={session.user.id}
+                canManage={canManageAccess}
+                onInvite={inviteMember}
+                onRevoke={revokeInvite}
+                onRemove={removeMember}
+              />
+              <TeamView
+                teamMembers={teamMembers}
+                tasks={tasks}
+                onAdd={() => { setEditingItem(null); setShowTeamModal(true); }}
+                onEdit={(member) => { setEditingItem(member); setShowTeamModal(true); }}
+                onDelete={deleteTeamMember}
+              />
+            </div>
           )}
 
           {activeTab === 'resources' && (
@@ -3366,6 +3484,112 @@ function AnalyticsView({ tasks, projects, clients, teamMembers }) {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+// Workspace Access — who can log in to this workspace (members, roles, invites)
+const roleBadgeClass = (r) => ({
+  owner: 'bg-brand-100 text-brand-700',
+  admin: 'bg-amber-100 text-amber-700',
+  member: 'bg-gray-100 text-gray-600'
+}[r] || 'bg-gray-100 text-gray-600');
+
+function WorkspaceAccess({ members, invites, currentUserId, canManage, onInvite, onRevoke, onRemove }) {
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('member');
+
+  const submit = (e) => { e.preventDefault(); onInvite(email, role); setEmail(''); setRole('member'); };
+
+  return (
+    <div>
+      <div className="mb-6">
+        <h2 className="text-3xl font-bold text-gray-900 mb-2">Workspace Access</h2>
+        <p className="text-gray-600">People who can sign in to this workspace</p>
+      </div>
+
+      {canManage && (
+        <form onSubmit={submit} className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 mb-6 flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[220px]">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Invite by email</label>
+            <input
+              type="email"
+              required
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="teammate@example.com"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+            <select
+              value={role}
+              onChange={e => setRole(e.target.value)}
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="member">Member</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <button type="submit" className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors">
+            <Plus size={18} /> Send invite
+          </button>
+        </form>
+      )}
+
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden mb-6">
+        <div className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-xs font-semibold text-gray-700 uppercase">
+          Members · {members.length}
+        </div>
+        <div className="divide-y divide-gray-100">
+          {members.map(m => (
+            <div key={m.id} className="px-6 py-3 flex items-center justify-between">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-semibold flex-shrink-0">
+                  {(m.email || '?')[0].toUpperCase()}
+                </div>
+                <p className="text-sm text-gray-900 truncate">
+                  {m.email || 'Unknown'}
+                  {m.user_id === currentUserId && <span className="text-gray-400"> (you)</span>}
+                </p>
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${roleBadgeClass(m.role)}`}>{m.role}</span>
+                {canManage && m.role !== 'owner' && m.user_id !== currentUserId && (
+                  <button onClick={() => onRemove(m.id)} className="text-gray-300 hover:text-red-500 transition-colors" title="Remove from workspace">
+                    <Trash2 size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {invites.length > 0 && (
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-xs font-semibold text-gray-700 uppercase">
+            Pending invites · {invites.length}
+          </div>
+          <div className="divide-y divide-gray-100">
+            {invites.map(inv => (
+              <div key={inv.id} className="px-6 py-3 flex items-center justify-between">
+                <div className="text-sm text-gray-700 truncate">{inv.email}</div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${roleBadgeClass(inv.role)}`}>{inv.role}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Pending</span>
+                  {canManage && (
+                    <button onClick={() => onRevoke(inv.id)} className="text-gray-300 hover:text-red-500 transition-colors" title="Revoke invite">
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

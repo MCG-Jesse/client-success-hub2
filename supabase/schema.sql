@@ -177,3 +177,73 @@ create index idx_projects_ws on public.projects(workspace_id);
 create index idx_tasks_ws on public.tasks(workspace_id);
 create index idx_team_members_ws on public.team_members(workspace_id);
 create index idx_resources_ws on public.resources(workspace_id);
+
+-- ============================================================================
+-- Phase 5: invites, roles, and multi-workspace membership
+-- (applied via migrations: invites_and_roles, restrict_accept_invite_to_authenticated,
+--  invites_add_workspace_name — shown here as applied)
+-- ============================================================================
+
+-- workspace_members gains a denormalized email (set by the signup trigger and
+-- accept_invite) so the member roster renders without reading auth.users.
+alter table public.workspace_members add column if not exists email text;
+
+-- Admin helper (owner or admin of the workspace)
+create or replace function private.is_workspace_admin(ws uuid)
+returns boolean language sql security definer set search_path = public stable as $$
+  select exists (
+    select 1 from public.workspace_members
+    where workspace_id = ws and user_id = auth.uid() and role in ('owner','admin')
+  );
+$$;
+grant execute on function private.is_workspace_admin(uuid) to authenticated;
+
+-- handle_new_user also records the owner's email (see consolidated function above;
+-- final version inserts workspace_members(..., email) with new.email).
+
+create table public.invites (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces(id) on delete cascade,
+  workspace_name text,
+  email text not null,
+  role text not null default 'member' check (role in ('admin','member')),
+  status text not null default 'pending' check (status in ('pending','accepted','revoked')),
+  invited_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  accepted_at timestamptz
+);
+create index idx_invites_ws on public.invites(workspace_id);
+create index idx_invites_email on public.invites(lower(email));
+alter table public.invites enable row level security;
+
+create policy "read invites (members or invitee)" on public.invites
+  for select using (
+    private.is_workspace_member(workspace_id)
+    or lower(email) = lower(auth.jwt() ->> 'email')
+  );
+create policy "admins create invites" on public.invites
+  for insert with check (private.is_workspace_admin(workspace_id));
+create policy "admins delete invites" on public.invites
+  for delete using (private.is_workspace_admin(workspace_id));
+
+-- Admins can remove non-owner members
+create policy "admins remove members" on public.workspace_members
+  for delete using (private.is_workspace_admin(workspace_id) and role <> 'owner');
+
+-- Accept an invite (validates the caller's email matches, then joins them)
+create or replace function public.accept_invite(p_invite_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare inv record; uemail text;
+begin
+  select email into uemail from auth.users where id = auth.uid();
+  select * into inv from public.invites where id = p_invite_id and status = 'pending';
+  if inv is null then raise exception 'Invite not found or already used'; end if;
+  if lower(inv.email) <> lower(uemail) then raise exception 'This invite is for a different email'; end if;
+  insert into public.workspace_members (workspace_id, user_id, role, email)
+    values (inv.workspace_id, auth.uid(), inv.role, uemail)
+    on conflict (workspace_id, user_id) do nothing;
+  update public.invites set status = 'accepted', accepted_at = now() where id = p_invite_id;
+end;
+$$;
+revoke execute on function public.accept_invite(uuid) from public;
+grant execute on function public.accept_invite(uuid) to authenticated;
