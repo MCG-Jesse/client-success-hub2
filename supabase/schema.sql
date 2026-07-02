@@ -309,3 +309,11 @@ create policy "members manage board_columns" on public.board_columns
 -- who can log in is immediately assignable to tasks. Existing members were
 -- backfilled. Invite RPC EXECUTE was re-locked to the `authenticated` role after
 -- the CREATE OR REPLACE reset the default grants.
+
+-- ============================================================================
+-- Capture the person's name at signup (migration: capture_name_at_signup)
+-- ============================================================================
+-- workspace_members gains a name column. handle_new_user + accept RPCs read
+-- raw_user_meta_data->>'full_name' (collected on the signup form) and set both
+-- the membership name and the team-seat name, so rosters and assignment show
+-- real names instead of the email prefix. RPC grants re-locked after replace.

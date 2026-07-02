@@ -232,6 +232,7 @@ function AuthScreen({ joining }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [workspaceName, setWorkspaceName] = useState('');
+  const [fullName, setFullName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -244,7 +245,7 @@ function AuthScreen({ joining }) {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
-          options: { data: { workspace_name: workspaceName.trim() || 'My Workspace' } }
+          options: { data: { full_name: fullName.trim(), workspace_name: workspaceName.trim() || 'My Workspace' } }
         });
         if (error) throw error;
         if (!data.session) {
@@ -283,16 +284,28 @@ function AuthScreen({ joining }) {
 
           <form onSubmit={submit} className="space-y-4">
             {mode === 'signup' && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Workspace name</label>
-                <input
-                  type="text"
-                  value={workspaceName}
-                  onChange={e => setWorkspaceName(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  placeholder="Muniz Consulting Group"
-                />
-              </div>
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Your name</label>
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={e => setFullName(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    placeholder="Jesse Muñiz"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Workspace name</label>
+                  <input
+                    type="text"
+                    value={workspaceName}
+                    onChange={e => setWorkspaceName(e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    placeholder="Muniz Consulting Group"
+                  />
+                </div>
+              </>
             )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
@@ -525,7 +538,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
         supabase.from('tasks').select('*').eq('workspace_id', wsId),
         supabase.from('team_members').select('*').eq('workspace_id', wsId),
         supabase.from('resources').select('*').eq('workspace_id', wsId),
-        supabase.from('workspace_members').select('id, user_id, email, role').eq('workspace_id', wsId),
+        supabase.from('workspace_members').select('id, user_id, email, name, role').eq('workspace_id', wsId),
         supabase.from('invites').select('id, email, role, token, created_at').eq('workspace_id', wsId).eq('status', 'pending'),
         supabase.from('board_columns').select('columns').eq('workspace_id', wsId).maybeSingle()
       ]);
@@ -3686,12 +3699,15 @@ function WorkspaceAccess({ members, invites, linkInvites, currentUserId, canMana
             <div key={m.id} className="px-6 py-3 flex items-center justify-between">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-semibold flex-shrink-0">
-                  {(m.email || '?')[0].toUpperCase()}
+                  {((m.name || m.email || '?').trim()[0] || '?').toUpperCase()}
                 </div>
-                <p className="text-sm text-gray-900 truncate">
-                  {m.email || 'Unknown'}
-                  {m.user_id === currentUserId && <span className="text-gray-400"> (you)</span>}
-                </p>
+                <div className="min-w-0">
+                  <p className="text-sm text-gray-900 truncate">
+                    {m.name || m.email || 'Unknown'}
+                    {m.user_id === currentUserId && <span className="text-gray-400"> (you)</span>}
+                  </p>
+                  {m.name && <p className="text-xs text-gray-500 truncate">{m.email}</p>}
+                </div>
               </div>
               <div className="flex items-center gap-3 flex-shrink-0">
                 <span className={`text-xs px-2 py-0.5 rounded-full font-medium capitalize ${roleBadgeClass(m.role)}`}>{m.role}</span>
