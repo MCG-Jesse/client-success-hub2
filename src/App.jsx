@@ -123,24 +123,13 @@ const COLUMN_BAR_COLORS = {
   gray: 'bg-gray-600', blue: 'bg-brand-600', green: 'bg-green-600',
   purple: 'bg-purple-600', orange: 'bg-orange-600', teal: 'bg-teal-600', pink: 'bg-pink-600'
 };
-const loadBoardColumns = () => {
-  try {
-    const raw = localStorage.getItem('kanban-columns');
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length) return parsed;
-    }
-  } catch {
-    /* fall through to defaults */
-  }
-  return DEFAULT_COLUMNS;
-};
-const saveBoardColumns = (cols) => {
-  try {
-    localStorage.setItem('kanban-columns', JSON.stringify(cols));
-  } catch {
-    /* ignore persistence errors */
-  }
+// Board columns live per-workspace in the DB. This module cache is hydrated from
+// the workspace's board_columns on load, so the many synchronous callers
+// (StatusBadge, filters, TaskModal, Analytics) can keep reading it as before.
+let boardColumnsCache = DEFAULT_COLUMNS;
+const loadBoardColumns = () => boardColumnsCache;
+const setBoardColumnsCache = (cols) => {
+  boardColumnsCache = (Array.isArray(cols) && cols.length) ? cols : DEFAULT_COLUMNS;
 };
 
 // Date helpers — parse 'YYYY-MM-DD' strings as LOCAL midnight to avoid the UTC
@@ -389,6 +378,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
   const [wsInvites, setWsInvites] = useState([]);
   const [linkInvites, setLinkInvites] = useState([]);
   const [pendingInvites, setPendingInvites] = useState([]);
+  const [boardColumns, setBoardColumns] = useState(DEFAULT_COLUMNS);
   const [joinPreview, setJoinPreview] = useState(null);
   const joinCheckedRef = useRef(false);
   const [clients, setClients] = useState([]);
@@ -529,17 +519,21 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
     if (!wsId) { setLoading(false); return; }
     localStorage.setItem('current-workspace', wsId);
     try {
-      const [c, p, t, tm, r, mem, inv] = await Promise.all([
+      const [c, p, t, tm, r, mem, inv, bc] = await Promise.all([
         supabase.from('clients').select('*').eq('workspace_id', wsId),
         supabase.from('projects').select('*').eq('workspace_id', wsId),
         supabase.from('tasks').select('*').eq('workspace_id', wsId),
         supabase.from('team_members').select('*').eq('workspace_id', wsId),
         supabase.from('resources').select('*').eq('workspace_id', wsId),
         supabase.from('workspace_members').select('id, user_id, email, role').eq('workspace_id', wsId),
-        supabase.from('invites').select('id, email, role, token, created_at').eq('workspace_id', wsId).eq('status', 'pending')
+        supabase.from('invites').select('id, email, role, token, created_at').eq('workspace_id', wsId).eq('status', 'pending'),
+        supabase.from('board_columns').select('columns').eq('workspace_id', wsId).maybeSingle()
       ]);
       const firstErr = c.error || p.error || t.error || tm.error || r.error || mem.error || inv.error;
       if (firstErr) throw firstErr;
+      const cols = (Array.isArray(bc.data?.columns) && bc.data.columns.length) ? bc.data.columns : DEFAULT_COLUMNS;
+      setBoardColumns(cols);
+      setBoardColumnsCache(cols);
       setClients((c.data || []).map(dbToClient));
       setProjects((p.data || []).map(dbToProject));
       setTasks((t.data || []).map(dbToTask));
@@ -648,6 +642,14 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
 
   const declineInvite = (inviteId) => {
     setPendingInvites(prev => prev.filter(i => i.id !== inviteId));
+  };
+
+  const persistBoardColumns = async (cols) => {
+    setBoardColumns(cols);
+    setBoardColumnsCache(cols);
+    const { error } = await supabase.from('board_columns')
+      .upsert({ workspace_id: workspace.id, columns: cols, updated_at: new Date().toISOString() }, { onConflict: 'workspace_id' });
+    if (error) dbError('Could not save the board columns.', error);
   };
 
   // Resource functions - Links only
@@ -1115,6 +1117,8 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
               projects={projects}
               clients={clients}
               teamMembers={teamMembers}
+              columns={boardColumns}
+              onColumnsChange={persistBoardColumns}
               onUpdateTask={updateTask}
               onEditTask={(task) => { setEditingItem(task); setShowTaskModal(true); }}
               onAddTask={() => { setEditingItem(null); setShowTaskModal(true); }}
@@ -1353,21 +1357,18 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
 
 // ... (rest of the components from the previous version remain exactly the same)
 // Kanban View Component
-function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEditTask, onAddTask }) {
+function KanbanView({ tasks, projects, clients, teamMembers, columns, onColumnsChange, onUpdateTask, onEditTask, onAddTask }) {
   const [draggedTask, setDraggedTask] = useState(null);
   const [dragOverColumn, setDragOverColumn] = useState(null);
-  const [columns, setColumns] = useState(loadBoardColumns);
   const [newColumnName, setNewColumnName] = useState('');
   const [editingColId, setEditingColId] = useState(null);
   const [editingLabel, setEditingLabel] = useState('');
-
-  useEffect(() => { saveBoardColumns(columns); }, [columns]);
 
   const startRename = (col) => { setEditingColId(col.id); setEditingLabel(col.label); };
   const cancelRename = () => { setEditingColId(null); setEditingLabel(''); };
   const commitRename = () => {
     const label = editingLabel.trim();
-    if (label) setColumns(columns.map(c => c.id === editingColId ? { ...c, label } : c));
+    if (label) onColumnsChange(columns.map(c => c.id === editingColId ? { ...c, label } : c));
     setEditingColId(null);
     setEditingLabel('');
   };
@@ -1377,7 +1378,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
     if (j < 0 || j >= columns.length) return;
     const next = [...columns];
     [next[index], next[j]] = [next[j], next[index]];
-    setColumns(next);
+    onColumnsChange(next);
   };
 
   const addColumn = () => {
@@ -1385,7 +1386,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
     if (!label) return;
     const id = `col-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}-${Date.now()}`;
     const color = COLUMN_COLOR_CYCLE[columns.filter(c => !c.builtin).length % COLUMN_COLOR_CYCLE.length];
-    setColumns([...columns, { id, label, color, builtin: false }]);
+    onColumnsChange([...columns, { id, label, color, builtin: false }]);
     setNewColumnName('');
   };
 
@@ -1396,7 +1397,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, onUpdateTask, onEdi
       : `Delete the "${col.label}" column?`;
     if (!confirm(msg)) return;
     affected.forEach(t => onUpdateTask(t.id, { ...t, status: 'todo' }));
-    setColumns(columns.filter(c => c.id !== col.id));
+    onColumnsChange(columns.filter(c => c.id !== col.id));
   };
 
   const handleDragStart = (e, task) => {

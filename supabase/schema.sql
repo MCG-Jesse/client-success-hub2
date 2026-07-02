@@ -285,3 +285,17 @@ end;
 $$;
 revoke execute on function public.accept_invite_by_token(text) from public;
 grant execute on function public.accept_invite_by_token(text) to authenticated;
+
+-- ============================================================================
+-- Board columns per workspace (migration: board_columns_per_workspace)
+-- One jsonb row per workspace; replaces the old per-browser localStorage config.
+-- ============================================================================
+create table public.board_columns (
+  workspace_id uuid primary key references public.workspaces(id) on delete cascade,
+  columns jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now()
+);
+alter table public.board_columns enable row level security;
+create policy "members manage board_columns" on public.board_columns
+  for all using (private.is_workspace_member(workspace_id))
+  with check (private.is_workspace_member(workspace_id));
