@@ -4,6 +4,14 @@ services:
     env: static
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
+    # Supabase connection — set the VALUES in the Render dashboard (Environment tab).
+    # Vite bakes VITE_-prefixed vars into the build, so they must be present at build time.
+    # The publishable/anon key is public-safe; Row Level Security protects the data.
+    envVars:
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
     headers:
       - path: /*
         name: Cache-Control
