@@ -1,0 +1,52 @@
+# Joan — Session Handoff
+
+## 1. Current State
+**Joan** (rebranded from "Client Success Hub" / PBB Customer Success Hub) is a **live, multi-tenant SaaS**.
+- **Live:** https://client-success-hub2.onrender.com (Render static site, auto-deploys from `main`).
+- **Repo:** github.com/MCG-Jesse/client-success-hub2. `main` == deployed. `feature/multi-tenant` merged into `main`.
+- **Access model (decided):** OPEN self-service SaaS — anyone signs up → gets own private workspace → invites their own team. No platform super-admin (operator oversight = Supabase dashboard).
+
+**Working (verified in prod):** email+password auth gate, per-workspace data isolation (RLS), roles (owner/admin/member), email invites + shareable invite links, workspace switcher, all CRUD persisting to Supabase, PBB template bulk-insert, Kanban custom columns per-workspace, name-at-signup.
+
+**Half/not implemented:** automatic invite emails (only manual link-share today), custom SMTP, operator console, billing, custom domain, leaked-password protection toggle (off), email-confirmation decision pending.
+
+## 2. Codebase Context
+**Stack:** React 19 + Vite (rolldown-vite), Tailwind via CDN. Single file `src/App.jsx` (~4200 lines). Icons: lucide-react.
+**Theme:** custom brass **`brand`** color ramp defined in `index.html` `tailwind.config` script. Header = charcoal `#1c1a17` + brass; title "📋 Joan" in Playfair Display serif (`.joan-title`). All former `blue-*` → `brand-*`. Purple removed (planning status → amber). Semantic red/green kept.
+
+**Supabase:** project **`joan`**, ref **`xlarzxakwdzblitobbrt`**, org MCG `zumijqjtsnbqcxjfaxkp`, region us-west-1, free tier. Client in `src/supabaseClient.js` (reads `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`). `.env` gitignored (values live locally + in Render dashboard); `.env.example` committed. Full schema in `supabase/schema.sql`.
+
+**Frontend architecture (all in App.jsx):**
+- Default export **`AppRoot`** = auth gate (`supabase.auth.getSession`/`onAuthStateChange`); reads `?join=<token>` from URL. Renders `AuthScreen` (no session) or `ClientProjectManager` (session, props: `session`, `onSignOut`, `joinToken`).
+- **`AuthScreen`**: login/signup (email+password). Signup fields: Your name → Workspace name → Email → Password. Passes `options.data = { full_name, workspace_name }`. Handles email-confirmation notice.
+- **`ClientProjectManager`**: main app. State: `workspaces[]`, `currentWorkspaceId`, derived `workspace`/`myRole`, `members`, `wsInvites` (email), `linkInvites` (token), `pendingInvites`, `boardColumns`, plus entity arrays.
+- **Data layer:** DB↔app mappers `dbToClient/clientToDb`, `dbToProject/projectToDb`, `dbToTask/taskToDb`, `dbToTeam/teamToDb`, `dbToLink/linkToDb` convert snake_case↔camelCase (components unchanged). `nz(v)` → '' becomes null. IDs are DB UUIDs. `loadData()` fetches all entities `.eq('workspace_id', wsId)`. CRUD = per-row `supabase.from(...).insert/update/delete` with functional setState.
+- **Board columns:** module cache `boardColumnsCache`; `loadBoardColumns()` returns it (used synchronously by StatusBadge, TableView/TasksView filters, TaskModal, AnalyticsView). Hydrated in `loadData` from `board_columns` table. `KanbanView` is CONTROLLED (`columns` + `onColumnsChange` → `persistBoardColumns` upserts + updates cache).
+- **Invites/roles:** `WorkspaceAccess` component (Team tab, above `TeamView`). Email invite form + shareable link (create/copy/revoke). Join flow: `?join=<token>` → `get_invite_by_token` preview → join modal → `accept_invite_by_token`.
+- **Auto team seat:** every login user also gets a `team_members` row (name from signup `full_name`, `user_id` linked) so they're assignable. Roster shows name over email.
+- Date helpers: `parseLocalDate` (parses 'YYYY-MM-DD' as LOCAL midnight — avoids UTC off-by-one), `startOfToday`, `isTaskOverdue`. Use these, never raw `new Date('YYYY-MM-DD')`.
+- Hardening: `ErrorBoundary` (per-view keyed by activeTab + top-level in main.jsx), spinner loading state, localStorage-validation removed (now DB).
+
+**Supabase schema (public):** `workspaces`, `workspace_members`(email,name), `team_members`(user_id), `clients`, `projects`, `tasks`(subtasks jsonb, sort_order), `resources`, `invites`(email nullable, token, workspace_name, status, role), `board_columns`(workspace_id PK, columns jsonb).
+**Private schema:** `is_workspace_member(uuid)`, `is_workspace_admin(uuid)`, `handle_new_user()` (trigger `on_auth_user_created` on auth.users → creates workspace + owner membership + owner team seat).
+**Public RPCs (SECURITY DEFINER, authenticated-only):** `accept_invite(uuid)`, `accept_invite_by_token(text)`, `get_invite_by_token(text)`.
+**RLS:** all tables scoped via `private.is_workspace_member(workspace_id)`; invites readable by members OR invitee (`lower(email)=lower(auth.jwt()->>'email')`); admin-only invite create/delete + member remove via `is_workspace_admin`.
+
+## 3. Errors & Roadblocks / Gotchas
+- **`CREATE OR REPLACE FUNCTION` RESETS grants** → the 3 SECURITY DEFINER RPCs become anon-executable. ALWAYS re-run after replacing them: `revoke execute on function public.<fn> from public, anon; grant execute ... to authenticated;` (currently correctly locked).
+- **Supabase built-in email is RATE-LIMITED** ("email rate limit exceeded") — blocks bulk signups. For TESTING create users via SQL: `insert into auth.users (... email, encrypted_password=extensions.crypt(pw, extensions.gen_salt('bf')), email_confirmed_at=now(), raw_user_meta_data={"full_name":..,"workspace_name":..}, confirmation_token='',recovery_token='',email_change_token_new='',email_change='')`. Trigger fires on insert. Delete test users via `delete from auth.users where email like ...` (FK-cascades all workspace data).
+- **Vite bakes VITE_ vars at BUILD time** — env vars MUST be in Render before any deploy or the live app can't reach Supabase (login screen renders but signup/login throws "Failed to fetch").
+- **Security advisor:** 3 intentional WARNs remain (accept_invite / accept_invite_by_token / get_invite_by_token authenticated-executable — required; they self-check auth) + **leaked_password_protection disabled** (dashboard toggle, not yet enabled).
+- **Lint:** ~16 PRE-EXISTING problems in App.jsx (15 errors incl. "Cannot create components during render" in StatCard/StatusBadge region, no-case-declarations in TableView sort, unused `Icon`). Not introduced this session; build passes (Vite doesn't run eslint).
+- **Jesse's account** `jesse.muniz@tylertech.com` predates name capture — manually backfilled `name='Jesse Muñiz'` on membership + seat. Has a DUPLICATE leftover manual team seat "Jesse" (`bjmuniz1@gmail.com`) to delete in Team tab.
+
+## 4. Next Steps (all optional — app is live/working; pick per priority)
+- **Custom SMTP (Resend) in Supabase Auth** — HIGHEST before real traffic; fixes email rate limit for confirmation/invite emails.
+- **Automatic invite emails** — trigger a Supabase Edge Function on invite insert to email the link (currently manual copy/share).
+- **Decide email confirmation** (Auth → Providers → Email "Confirm email") + **enable leaked-password protection** (Auth → Password).
+- **Merge "Workspace Access" + "Team Members"** into one "People" list (login members vs assignment-only seats) — removes redundancy from auto-seats.
+- **Operator/platform-admin console** — in-app view of workspaces/users/usage (NOT their client data).
+- **Billing** (Stripe) if productizing; **custom domain** on Render + update Supabase Site URL.
+- Jesse: delete duplicate "Jesse" team seat in Team tab.
+
+**Test-user SQL + deploy pattern:** frontend changes need `git push origin main` (Render redeploys ~5min). DB-only changes apply instantly via Supabase MCP `apply_migration`/`execute_sql` — no deploy. After ANY DB change run `get_advisors(security)`; after ANY invite-RPC replace, re-lock grants.
