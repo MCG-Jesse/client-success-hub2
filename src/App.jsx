@@ -150,6 +150,58 @@ const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); retur
 const toYMD = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const isTaskOverdue = (task) => !!task.dueDate && task.status !== 'completed' && parseLocalDate(task.dueDate) < startOfToday();
 
+// ===== Supabase row <-> app object mappers =====
+// The DB uses snake_case; the app/components use camelCase. These keep the
+// components unchanged while persisting to Postgres. nz() turns '' into null
+// so empty date/uuid fields don't violate column types.
+const nz = (v) => (v === '' || v === undefined ? null : v);
+
+const dbToClient = (r) => ({
+  id: r.id, name: r.name || '', company: r.company || '', email: r.email || '', phone: r.phone || '',
+  assignedTo: r.assigned_to || '', populationSize: r.population_size || '', yearEndDate: r.year_end_date || '',
+  valueProposition: r.value_proposition || '', problemIssue: r.problem_issue || '',
+  goalMetric: r.goal_metric || '', expectedDeliverables: r.expected_deliverables || ''
+});
+const clientToDb = (c) => ({
+  name: c.name || '', company: nz(c.company), email: nz(c.email), phone: nz(c.phone),
+  assigned_to: nz(c.assignedTo), population_size: nz(c.populationSize), year_end_date: nz(c.yearEndDate),
+  value_proposition: nz(c.valueProposition), problem_issue: nz(c.problemIssue),
+  goal_metric: nz(c.goalMetric), expected_deliverables: nz(c.expectedDeliverables)
+});
+
+const dbToProject = (r) => ({
+  id: r.id, name: r.name || '', clientId: r.client_id || '', status: r.status || 'planning',
+  startDate: r.start_date || '', endDate: r.end_date || '', description: r.description || '',
+  usePBBTemplate: !!r.use_pbb_template
+});
+const projectToDb = (p) => ({
+  name: p.name || '', client_id: nz(p.clientId), status: p.status || 'planning',
+  start_date: nz(p.startDate), end_date: nz(p.endDate), description: nz(p.description),
+  use_pbb_template: !!p.usePBBTemplate
+});
+
+const dbToTask = (r) => ({
+  id: r.id, title: r.title || '', description: r.description || '', projectId: r.project_id || '',
+  assignedTo: r.assigned_to || '', status: r.status || 'todo', priority: r.priority || 'medium',
+  startDate: r.start_date || '', dueDate: r.due_date || '',
+  subtasks: Array.isArray(r.subtasks) ? r.subtasks : [],
+  phase: r.phase || '', phaseName: r.phase_name || '', section: r.section || '', sectionName: r.section_name || '',
+  order: r.sort_order || 0
+});
+const taskToDb = (t) => ({
+  title: t.title || '', description: nz(t.description), project_id: nz(t.projectId), assigned_to: nz(t.assignedTo),
+  status: t.status || 'todo', priority: t.priority || 'medium', start_date: nz(t.startDate), due_date: nz(t.dueDate),
+  subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
+  phase: nz(t.phase), phase_name: nz(t.phaseName), section: nz(t.section), section_name: nz(t.sectionName),
+  sort_order: t.order || 0
+});
+
+const dbToTeam = (r) => ({ id: r.id, name: r.name || '', role: r.role || '', email: r.email || '' });
+const teamToDb = (m) => ({ name: m.name || '', role: nz(m.role), email: nz(m.email) });
+
+const dbToLink = (r) => ({ id: r.id, title: r.title || '', url: r.url || '', description: r.description || '', dateAdded: r.date_added || r.created_at });
+const linkToDb = (l) => ({ title: l.title || '', url: nz(l.url), description: nz(l.description) });
+
 // Catches render errors so a crash in one view (or a bad localStorage record)
 // shows a recoverable message instead of a blank white screen.
 export class ErrorBoundary extends React.Component {
@@ -345,23 +397,6 @@ function ClientProjectManager({ session, onSignOut }) {
   const [editingItem, setEditingItem] = useState(null);
 
   // Storage helper - uses localStorage
-  const storage = {
-    async get(key) {
-      const value = localStorage.getItem(key);
-      return value ? { key, value } : null;
-    },
-    
-    async set(key, value) {
-      localStorage.setItem(key, value);
-      return { key, value };
-    },
-    
-    async delete(key) {
-      localStorage.removeItem(key);
-      return { key, deleted: true };
-    }
-  };
-
   // Generate PBB template tasks for a project
   const generatePBBTasks = (projectId) => {
     const newTasks = [];
@@ -418,12 +453,7 @@ function ClientProjectManager({ session, onSignOut }) {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // Load data on mount
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  // Load the signed-in user's workspace (also exercises the RLS read path)
+  // On login: load the user's workspace (RLS read), then load its data
   useEffect(() => {
     if (!session?.user) return;
     let active = true;
@@ -434,214 +464,184 @@ function ClientProjectManager({ session, onSignOut }) {
         .eq('user_id', session.user.id)
         .limit(1)
         .maybeSingle();
-      if (active && !error && data) {
-        setWorkspace({ id: data.workspace_id, name: data.workspaces?.name || 'Workspace' });
+      if (!active) return;
+      if (error || !data) {
+        console.error('Workspace load failed:', error);
+        showNotification('Could not load your workspace.', 'error');
+        setLoading(false);
+        return;
       }
+      setWorkspace({ id: data.workspace_id, name: data.workspaces?.name || 'Workspace' });
     })();
     return () => { active = false; };
   }, [session]);
 
-  const loadData = async () => {
-    // Parse a stored value, falling back to a default if it's missing,
-    // not valid JSON, or the wrong shape — so one corrupt key can't crash the app.
-    const safeParse = (res, fallback, isValid) => {
-      if (!res?.value) return fallback;
-      try {
-        const parsed = JSON.parse(res.value);
-        return isValid(parsed) ? parsed : fallback;
-      } catch {
-        return fallback;
-      }
-    };
-    try {
-      const [clientsRes, projectsRes, tasksRes, teamRes, resourcesRes] = await Promise.all([
-        storage.get('clients').catch(() => null),
-        storage.get('projects').catch(() => null),
-        storage.get('tasks').catch(() => null),
-        storage.get('team-members').catch(() => null),
-        storage.get('resources').catch(() => null)
-      ]);
+  useEffect(() => {
+    if (workspace?.id) loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace?.id]);
 
-      setClients(safeParse(clientsRes, [], Array.isArray));
-      setProjects(safeParse(projectsRes, [], Array.isArray));
-      // Normalize each task's subtasks to an array so malformed records can't crash a view
-      setTasks(safeParse(tasksRes, [], Array.isArray).map(t => ({
-        ...t,
-        subtasks: Array.isArray(t.subtasks) ? t.subtasks : []
-      })));
-      setTeamMembers(safeParse(teamRes, [], Array.isArray));
-      const res = safeParse(resourcesRes, { links: [] }, v => v && typeof v === 'object');
-      setResources({ links: Array.isArray(res.links) ? res.links : [] });
+  const loadData = async () => {
+    if (!workspace?.id) { setLoading(false); return; }
+    try {
+      const [c, p, t, tm, r] = await Promise.all([
+        supabase.from('clients').select('*').eq('workspace_id', workspace.id),
+        supabase.from('projects').select('*').eq('workspace_id', workspace.id),
+        supabase.from('tasks').select('*').eq('workspace_id', workspace.id),
+        supabase.from('team_members').select('*').eq('workspace_id', workspace.id),
+        supabase.from('resources').select('*').eq('workspace_id', workspace.id)
+      ]);
+      const firstErr = c.error || p.error || t.error || tm.error || r.error;
+      if (firstErr) throw firstErr;
+      setClients((c.data || []).map(dbToClient));
+      setProjects((p.data || []).map(dbToProject));
+      setTasks((t.data || []).map(dbToTask));
+      setTeamMembers((tm.data || []).map(dbToTeam));
+      setResources({ links: (r.data || []).map(dbToLink) });
     } catch (error) {
       console.error('Error loading data:', error);
-      showNotification('Some saved data was invalid and was skipped.', 'error');
+      showNotification('Error loading your data. Please refresh.', 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  const saveClients = async (newClients) => {
-    try {
-      await storage.set('clients', JSON.stringify(newClients));
-      setClients(newClients);
-      return true;
-    } catch (error) {
-      console.error('Error saving clients:', error);
-      showNotification('Error saving client. Please try again.', 'error');
-      return false;
-    }
-  };
-
-  const saveProjects = async (newProjects) => {
-    try {
-      await storage.set('projects', JSON.stringify(newProjects));
-      setProjects(newProjects);
-      return true;
-    } catch (error) {
-      console.error('Error saving projects:', error);
-      showNotification('Error saving project. Please try again.', 'error');
-      return false;
-    }
-  };
-
-  const saveTasks = async (newTasks) => {
-    try {
-      await storage.set('tasks', JSON.stringify(newTasks));
-      setTasks(newTasks);
-      return true;
-    } catch (error) {
-      console.error('Error saving tasks:', error);
-      showNotification('Error saving task. Please try again.', 'error');
-      return false;
-    }
-  };
-
-  const saveTeamMembers = async (newTeam) => {
-    try {
-      await storage.set('team-members', JSON.stringify(newTeam));
-      setTeamMembers(newTeam);
-      return true;
-    } catch (error) {
-      console.error('Error saving team members:', error);
-      showNotification('Error saving team member. Please try again.', 'error');
-      return false;
-    }
-  };
-
-  const saveResources = async (newResources) => {
-    try {
-      await storage.set('resources', JSON.stringify(newResources));
-      setResources(newResources);
-      return true;
-    } catch (error) {
-      console.error('Error saving resources:', error);
-      showNotification('Error saving resource. Please try again.', 'error');
-      return false;
-    }
-  };
+  const dbError = (msg, error) => { console.error(msg, error); showNotification(msg, 'error'); };
 
   // Resource functions - Links only
   const addLink = async (link) => {
-    const newLink = { ...link, id: Date.now().toString(), dateAdded: new Date().toISOString() };
-    const success = await saveResources({ ...resources, links: [...resources.links, newLink] });
-    if (success) showNotification('Link added successfully!');
+    const { data, error } = await supabase.from('resources')
+      .insert({ ...linkToDb(link), workspace_id: workspace.id }).select().single();
+    if (error) return dbError('Error saving link. Please try again.', error);
+    setResources(prev => ({ ...prev, links: [...prev.links, dbToLink(data)] }));
+    showNotification('Link added successfully!');
   };
 
   const updateLink = async (id, updatedLink) => {
-    const success = await saveResources({ ...resources, links: resources.links.map(l => l.id === id ? { ...updatedLink, id } : l) });
-    if (success) showNotification('Link updated successfully!');
+    const { data, error } = await supabase.from('resources').update(linkToDb(updatedLink)).eq('id', id).select().single();
+    if (error) return dbError('Error saving link. Please try again.', error);
+    setResources(prev => ({ ...prev, links: prev.links.map(l => l.id === id ? dbToLink(data) : l) }));
+    showNotification('Link updated successfully!');
   };
 
   const deleteLink = async (id) => {
-    if (confirm('Delete this link?')) {
-      const success = await saveResources({ ...resources, links: resources.links.filter(l => l.id !== id) });
-      if (success) showNotification('Link deleted successfully!');
-    }
+    if (!confirm('Delete this link?')) return;
+    const { error } = await supabase.from('resources').delete().eq('id', id);
+    if (error) return dbError('Error deleting link. Please try again.', error);
+    setResources(prev => ({ ...prev, links: prev.links.filter(l => l.id !== id) }));
+    showNotification('Link deleted successfully!');
   };
 
   // Client functions
   const addClient = async (client) => {
-    const newClient = { ...client, id: Date.now().toString() };
-    const success = await saveClients([...clients, newClient]);
-    if (success) showNotification('Client added successfully!');
+    const { data, error } = await supabase.from('clients')
+      .insert({ ...clientToDb(client), workspace_id: workspace.id }).select().single();
+    if (error) return dbError('Error saving client. Please try again.', error);
+    setClients(prev => [...prev, dbToClient(data)]);
+    showNotification('Client added successfully!');
   };
 
   const updateClient = async (id, updatedClient) => {
-    const success = await saveClients(clients.map(c => c.id === id ? { ...updatedClient, id } : c));
-    if (success) showNotification('Client updated successfully!');
+    const { data, error } = await supabase.from('clients').update(clientToDb(updatedClient)).eq('id', id).select().single();
+    if (error) return dbError('Error saving client. Please try again.', error);
+    setClients(prev => prev.map(c => c.id === id ? dbToClient(data) : c));
+    showNotification('Client updated successfully!');
   };
 
   const deleteClient = async (id) => {
-    if (confirm('Delete this client? Associated projects and tasks will remain but won\'t be linked.')) {
-      const success = await saveClients(clients.filter(c => c.id !== id));
-      if (success) showNotification('Client deleted successfully!');
-    }
+    if (!confirm('Delete this client? Associated projects and tasks will remain but won\'t be linked.')) return;
+    const { error } = await supabase.from('clients').delete().eq('id', id);
+    if (error) return dbError('Error deleting client. Please try again.', error);
+    setClients(prev => prev.filter(c => c.id !== id));
+    setProjects(prev => prev.map(p => p.clientId === id ? { ...p, clientId: '' } : p)); // DB SET NULL
+    showNotification('Client deleted successfully!');
   };
 
   // Project functions
   const addProject = async (project, usePBBTemplate = false) => {
-    const newProject = { ...project, id: Date.now().toString(), usePBBTemplate };
-    const success = await saveProjects([...projects, newProject]);
-    
-    if (success && usePBBTemplate) {
-      // Generate template tasks
-      const templateTasks = generatePBBTasks(newProject.id);
-      const allTasks = [...tasks, ...templateTasks];
-      await saveTasks(allTasks);
-      showNotification(`Project created with ${templateTasks.length} PBB template tasks!`);
-    } else if (success) {
+    const { data, error } = await supabase.from('projects')
+      .insert({ ...projectToDb(project), use_pbb_template: usePBBTemplate, workspace_id: workspace.id })
+      .select().single();
+    if (error) return dbError('Error saving project. Please try again.', error);
+    const newProject = dbToProject(data);
+    setProjects(prev => [...prev, newProject]);
+
+    if (usePBBTemplate) {
+      const rows = generatePBBTasks(newProject.id).map(t => ({ ...taskToDb(t), workspace_id: workspace.id }));
+      const { data: taskData, error: taskErr } = await supabase.from('tasks').insert(rows).select();
+      if (taskErr) return dbError('Project created, but template tasks failed to save.', taskErr);
+      setTasks(prev => [...prev, ...(taskData || []).map(dbToTask)]);
+      showNotification(`Project created with ${(taskData || []).length} PBB template tasks!`);
+    } else {
       showNotification('Project added successfully!');
     }
   };
 
   const updateProject = async (id, updatedProject) => {
-    const success = await saveProjects(projects.map(p => p.id === id ? { ...updatedProject, id } : p));
-    if (success) showNotification('Project updated successfully!');
+    const { data, error } = await supabase.from('projects').update(projectToDb(updatedProject)).eq('id', id).select().single();
+    if (error) return dbError('Error saving project. Please try again.', error);
+    setProjects(prev => prev.map(p => p.id === id ? dbToProject(data) : p));
+    showNotification('Project updated successfully!');
   };
 
   const deleteProject = async (id) => {
-    if (confirm('Delete this project? Associated tasks will remain but won\'t be linked.')) {
-      const success = await saveProjects(projects.filter(p => p.id !== id));
-      if (success) showNotification('Project deleted successfully!');
-    }
+    if (!confirm('Delete this project? Associated tasks will remain but won\'t be linked.')) return;
+    const { error } = await supabase.from('projects').delete().eq('id', id);
+    if (error) return dbError('Error deleting project. Please try again.', error);
+    setProjects(prev => prev.filter(p => p.id !== id));
+    setTasks(prev => prev.map(t => t.projectId === id ? { ...t, projectId: '' } : t)); // DB SET NULL
+    showNotification('Project deleted successfully!');
   };
 
   // Task functions
   const addTask = async (task) => {
-    const newTask = { ...task, id: Date.now().toString() };
-    const success = await saveTasks([...tasks, newTask]);
-    if (success) showNotification('Task added successfully!');
+    const { data, error } = await supabase.from('tasks')
+      .insert({ ...taskToDb(task), workspace_id: workspace.id }).select().single();
+    if (error) return dbError('Error saving task. Please try again.', error);
+    setTasks(prev => [...prev, dbToTask(data)]);
+    showNotification('Task added successfully!');
   };
 
   const updateTask = async (id, updatedTask) => {
-    const success = await saveTasks(tasks.map(t => t.id === id ? { ...updatedTask, id } : t));
-    if (success) showNotification('Task updated successfully!');
+    const { data, error } = await supabase.from('tasks').update(taskToDb(updatedTask)).eq('id', id).select().single();
+    if (error) return dbError('Error saving task. Please try again.', error);
+    setTasks(prev => prev.map(t => t.id === id ? dbToTask(data) : t));
+    showNotification('Task updated successfully!');
   };
 
   const deleteTask = async (id) => {
-    if (confirm('Delete this task?')) {
-      const success = await saveTasks(tasks.filter(t => t.id !== id));
-      if (success) showNotification('Task deleted successfully!');
-    }
+    if (!confirm('Delete this task?')) return;
+    const { error } = await supabase.from('tasks').delete().eq('id', id);
+    if (error) return dbError('Error deleting task. Please try again.', error);
+    setTasks(prev => prev.filter(t => t.id !== id));
+    showNotification('Task deleted successfully!');
   };
 
   // Team functions
   const addTeamMember = async (member) => {
-    const newMember = { ...member, id: Date.now().toString() };
-    const success = await saveTeamMembers([...teamMembers, newMember]);
-    if (success) showNotification('Team member added successfully!');
+    const { data, error } = await supabase.from('team_members')
+      .insert({ ...teamToDb(member), workspace_id: workspace.id }).select().single();
+    if (error) return dbError('Error saving team member. Please try again.', error);
+    setTeamMembers(prev => [...prev, dbToTeam(data)]);
+    showNotification('Team member added successfully!');
   };
 
   const updateTeamMember = async (id, updatedMember) => {
-    const success = await saveTeamMembers(teamMembers.map(m => m.id === id ? { ...updatedMember, id } : m));
-    if (success) showNotification('Team member updated successfully!');
+    const { data, error } = await supabase.from('team_members').update(teamToDb(updatedMember)).eq('id', id).select().single();
+    if (error) return dbError('Error saving team member. Please try again.', error);
+    setTeamMembers(prev => prev.map(m => m.id === id ? dbToTeam(data) : m));
+    showNotification('Team member updated successfully!');
   };
 
   const deleteTeamMember = async (id) => {
-    if (confirm('Delete this team member?')) {
-      const success = await saveTeamMembers(teamMembers.filter(m => m.id !== id));
-      if (success) showNotification('Team member deleted successfully!');
-    }
+    if (!confirm('Delete this team member?')) return;
+    const { error } = await supabase.from('team_members').delete().eq('id', id);
+    if (error) return dbError('Error deleting team member. Please try again.', error);
+    setTeamMembers(prev => prev.filter(m => m.id !== id));
+    // DB SET NULL on assigned_to — clear locally so assignments update immediately
+    setClients(prev => prev.map(c => c.assignedTo === id ? { ...c, assignedTo: '' } : c));
+    setTasks(prev => prev.map(t => t.assignedTo === id ? { ...t, assignedTo: '' } : t));
+    showNotification('Team member deleted successfully!');
   };
 
   const [expandedMenuItems, setExpandedMenuItems] = useState({ projects: true });
