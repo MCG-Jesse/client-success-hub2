@@ -268,7 +268,6 @@ function AuthScreen({ joining }) {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-4xl text-gray-900" style={{ fontFamily: "'Playfair Display', Georgia, serif", fontWeight: 700 }}>📋 Joan</h1>
-          <p className="text-gray-500 italic mt-1">Command your projects with boardroom authority</p>
         </div>
         {joining && (
           <div className="mb-4 px-4 py-3 rounded-lg bg-brand-50 border border-brand-200 text-sm text-brand-800 text-center">
@@ -401,7 +400,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
   const [resources, setResources] = useState({ links: [] });
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1024);
 
   // Modal states
   const [showClientModal, setShowClientModal] = useState(false);
@@ -912,6 +911,8 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
         
         .modal-content {
           animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+          max-height: 90vh;
+          overflow-y: auto;
         }
         
         @keyframes slideUp {
@@ -975,10 +976,9 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
             </button>
             <div>
               <h1 className="joan-title text-2xl text-[#f5edd8]">📋 Joan</h1>
-              <p className="text-sm text-[#bfae86] hidden sm:block italic">Command your projects with boardroom authority</p>
             </div>
           </div>
-          <div className="text-sm text-[#a89f8c] font-medium">
+          <div className="hidden sm:block text-sm text-[#a89f8c] font-medium">
             {clients.length} clients • {projects.length} projects • {tasks.length} tasks
           </div>
         </div>
@@ -1084,7 +1084,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
       <main className={`pt-[85px] transition-all duration-300 ${
         sidebarOpen ? 'lg:ml-64' : 'ml-0'
       }`}>
-        <div className="p-8 bg-gray-50 min-h-screen">
+        <div className="p-4 sm:p-8 bg-gray-50 min-h-screen">
           {pendingInvites.length > 0 && (
             <div className="mb-6 space-y-3">
               {pendingInvites.map(inv => (
