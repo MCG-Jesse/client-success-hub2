@@ -92,6 +92,26 @@ create table public.resources (
   created_at timestamptz not null default now()
 );
 
+create table public.calendar_events (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces(id) on delete cascade,
+  title text not null,
+  event_type text not null default 'time_off',
+    -- availability: time_off | travel | sick | holiday
+    -- client:       client_meeting | training | other
+  member_id uuid references public.team_members(id) on delete set null,  -- who's out (availability)
+  client_id uuid references public.clients(id) on delete set null,       -- optional (client events)
+  start_date date not null,
+  end_date date,               -- null = single-day
+  all_day boolean not null default true,
+  start_time time,             -- optional; shown as a label when all_day = false
+  end_time time,
+  notes text,
+  created_by uuid references auth.users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index calendar_events_ws_start_idx on public.calendar_events (workspace_id, start_date);
+
 -- ============ Private helpers (not exposed via PostgREST) ============
 
 create schema if not exists private;
@@ -121,6 +141,7 @@ alter table public.clients enable row level security;
 alter table public.projects enable row level security;
 alter table public.tasks enable row level security;
 alter table public.resources enable row level security;
+alter table public.calendar_events enable row level security;
 
 create policy "members can read workspaces" on public.workspaces
   for select using (private.is_workspace_member(id));
@@ -141,6 +162,8 @@ create policy "members manage projects" on public.projects
 create policy "members manage tasks" on public.tasks
   for all using (private.is_workspace_member(workspace_id)) with check (private.is_workspace_member(workspace_id));
 create policy "members manage resources" on public.resources
+  for all using (private.is_workspace_member(workspace_id)) with check (private.is_workspace_member(workspace_id));
+create policy "members manage calendar_events" on public.calendar_events
   for all using (private.is_workspace_member(workspace_id)) with check (private.is_workspace_member(workspace_id));
 
 -- ============ Auto-provision workspace + owner on signup ============

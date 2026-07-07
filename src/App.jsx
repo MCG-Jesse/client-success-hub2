@@ -132,6 +132,20 @@ const setBoardColumnsCache = (cols) => {
   boardColumnsCache = (Array.isArray(cols) && cols.length) ? cols : DEFAULT_COLUMNS;
 };
 
+// Calendar event types — availability (who's out) + client events. Full literal
+// class strings so Tailwind's CDN JIT always emits them. No purple (theme convention).
+const EVENT_TYPES = {
+  time_off:       { label: 'Time Off',       cat: 'avail',  chip: 'bg-amber-100 text-amber-800 border border-amber-200', dot: 'bg-amber-500' },
+  travel:         { label: 'Travel',         cat: 'avail',  chip: 'bg-blue-100 text-blue-800 border border-blue-200',    dot: 'bg-blue-500' },
+  sick:           { label: 'Sick',           cat: 'avail',  chip: 'bg-red-100 text-red-800 border border-red-200',       dot: 'bg-red-500' },
+  holiday:        { label: 'Holiday',        cat: 'avail',  chip: 'bg-gray-100 text-gray-700 border border-gray-200',    dot: 'bg-gray-400' },
+  client_meeting: { label: 'Client Meeting', cat: 'client', chip: 'bg-green-100 text-green-800 border border-green-200', dot: 'bg-green-500' },
+  training:       { label: 'Training',       cat: 'client', chip: 'bg-brand-100 text-brand-800 border border-brand-200', dot: 'bg-brand-500' },
+  other:          { label: 'Other',          cat: 'client', chip: 'bg-slate-100 text-slate-700 border border-slate-200', dot: 'bg-slate-400' }
+};
+const EVENT_TYPE_ORDER = ['time_off', 'travel', 'sick', 'holiday', 'client_meeting', 'training', 'other'];
+const eventTypeMeta = (t) => EVENT_TYPES[t] || EVENT_TYPES.other;
+
 // Date helpers — parse 'YYYY-MM-DD' strings as LOCAL midnight to avoid the UTC
 // off-by-one that new Date('YYYY-MM-DD') causes in timezones behind UTC.
 const parseLocalDate = (s) => (s ? new Date(s + 'T00:00:00') : null);
@@ -190,6 +204,21 @@ const teamToDb = (m) => ({ name: m.name || '', role: nz(m.role), email: nz(m.ema
 
 const dbToLink = (r) => ({ id: r.id, title: r.title || '', url: r.url || '', description: r.description || '', dateAdded: r.date_added || r.created_at });
 const linkToDb = (l) => ({ title: l.title || '', url: nz(l.url), description: nz(l.description) });
+
+const dbToEvent = (r) => ({
+  id: r.id, title: r.title || '', eventType: r.event_type || 'time_off',
+  memberId: r.member_id || '', clientId: r.client_id || '',
+  startDate: r.start_date || '', endDate: r.end_date || '',
+  allDay: r.all_day !== false, startTime: r.start_time || '', endTime: r.end_time || '',
+  notes: r.notes || ''
+});
+const eventToDb = (e) => ({
+  title: e.title || '', event_type: e.eventType || 'time_off',
+  member_id: nz(e.memberId), client_id: nz(e.clientId),
+  start_date: nz(e.startDate), end_date: nz(e.endDate),
+  all_day: e.allDay !== false, start_time: nz(e.startTime), end_time: nz(e.endTime),
+  notes: nz(e.notes)
+});
 
 // Catches render errors so a crash in one view (or a bad localStorage record)
 // shows a recoverable message instead of a blank white screen.
@@ -397,6 +426,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
   const [projects, setProjects] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
+  const [calendarEvents, setCalendarEvents] = useState([]);
   const [resources, setResources] = useState({ links: [] });
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
@@ -409,6 +439,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [showProjectDetailModal, setShowProjectDetailModal] = useState(false);
   const [showClientDetailModal, setShowClientDetailModal] = useState(false);
+  const [showCalendarEventModal, setShowCalendarEventModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
 
   // Storage helper - uses localStorage
@@ -531,7 +562,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
     if (!wsId) { setLoading(false); return; }
     localStorage.setItem('current-workspace', wsId);
     try {
-      const [c, p, t, tm, r, mem, inv, bc] = await Promise.all([
+      const [c, p, t, tm, r, mem, inv, bc, ev] = await Promise.all([
         supabase.from('clients').select('*').eq('workspace_id', wsId),
         supabase.from('projects').select('*').eq('workspace_id', wsId),
         supabase.from('tasks').select('*').eq('workspace_id', wsId),
@@ -539,9 +570,10 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
         supabase.from('resources').select('*').eq('workspace_id', wsId),
         supabase.from('workspace_members').select('id, user_id, email, name, role').eq('workspace_id', wsId),
         supabase.from('invites').select('id, email, role, token, created_at').eq('workspace_id', wsId).eq('status', 'pending'),
-        supabase.from('board_columns').select('columns').eq('workspace_id', wsId).maybeSingle()
+        supabase.from('board_columns').select('columns').eq('workspace_id', wsId).maybeSingle(),
+        supabase.from('calendar_events').select('*').eq('workspace_id', wsId)
       ]);
-      const firstErr = c.error || p.error || t.error || tm.error || r.error || mem.error || inv.error;
+      const firstErr = c.error || p.error || t.error || tm.error || r.error || mem.error || inv.error || ev.error;
       if (firstErr) throw firstErr;
       const cols = (Array.isArray(bc.data?.columns) && bc.data.columns.length) ? bc.data.columns : DEFAULT_COLUMNS;
       setBoardColumns(cols);
@@ -550,6 +582,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
       setProjects((p.data || []).map(dbToProject));
       setTasks((t.data || []).map(dbToTask));
       setTeamMembers((tm.data || []).map(dbToTeam));
+      setCalendarEvents((ev.data || []).map(dbToEvent));
       setResources({ links: (r.data || []).map(dbToLink) });
       setMembers(mem.data || []);
       const allInvites = inv.data || [];
@@ -773,6 +806,30 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
     showNotification('Task deleted successfully!');
   };
 
+  // Calendar event functions
+  const addCalendarEvent = async (ev) => {
+    const { data, error } = await supabase.from('calendar_events')
+      .insert({ ...eventToDb(ev), workspace_id: workspace.id, created_by: session.user.id }).select().single();
+    if (error) return dbError('Error saving event. Please try again.', error);
+    setCalendarEvents(prev => [...prev, dbToEvent(data)]);
+    showNotification('Event added successfully!');
+  };
+
+  const updateCalendarEvent = async (id, updatedEvent) => {
+    const { data, error } = await supabase.from('calendar_events').update(eventToDb(updatedEvent)).eq('id', id).select().single();
+    if (error) return dbError('Error saving event. Please try again.', error);
+    setCalendarEvents(prev => prev.map(e => e.id === id ? dbToEvent(data) : e));
+    showNotification('Event updated successfully!');
+  };
+
+  const deleteCalendarEvent = async (id) => {
+    if (!confirm('Delete this event?')) return;
+    const { error } = await supabase.from('calendar_events').delete().eq('id', id);
+    if (error) return dbError('Error deleting event. Please try again.', error);
+    setCalendarEvents(prev => prev.filter(e => e.id !== id));
+    showNotification('Event deleted successfully!');
+  };
+
   // Team functions
   const addTeamMember = async (member) => {
     const { data, error } = await supabase.from('team_members')
@@ -818,6 +875,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
         { id: 'analytics', label: 'Analytics', icon: PieChart }
       ]
     },
+    { id: 'calendar', label: 'Calendar', icon: Calendar },
     { id: 'resources', label: 'Resources', icon: BookOpen },
     { id: 'team', label: 'Team', icon: User }
   ];
@@ -1231,6 +1289,17 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
             </div>
           )}
 
+          {activeTab === 'calendar' && (
+            <CalendarEventsView
+              calendarEvents={calendarEvents}
+              teamMembers={teamMembers}
+              clients={clients}
+              onAdd={() => { setEditingItem(null); setShowCalendarEventModal(true); }}
+              onEdit={(ev) => { setEditingItem(ev); setShowCalendarEventModal(true); }}
+              onDelete={deleteCalendarEvent}
+            />
+          )}
+
           {activeTab === 'resources' && (
             <ResourcesView
               resources={resources}
@@ -1362,6 +1431,25 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
             setEditingItem(null);
           }}
           onClose={() => { setShowTeamModal(false); setEditingItem(null); }}
+        />
+      )}
+
+      {showCalendarEventModal && (
+        <CalendarEventModal
+          event={editingItem}
+          teamMembers={teamMembers}
+          clients={clients}
+          onDelete={deleteCalendarEvent}
+          onSave={(ev) => {
+            if (editingItem) {
+              updateCalendarEvent(editingItem.id, ev);
+            } else {
+              addCalendarEvent(ev);
+            }
+            setShowCalendarEventModal(false);
+            setEditingItem(null);
+          }}
+          onClose={() => { setShowCalendarEventModal(false); setEditingItem(null); }}
         />
       )}
     </div>
@@ -2475,6 +2563,182 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Team Calendar — availability (who's out) + client events, on a month grid
+function CalendarEventsView({ calendarEvents, teamMembers, clients, onAdd, onEdit, onDelete }) {
+  const today = startOfToday();
+  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  const [viewYear, setViewYear] = useState(today.getFullYear());
+  const [filterPerson, setFilterPerson] = useState('all');
+  const [filterCat, setFilterCat] = useState('all');
+
+  const memberName = (id) => teamMembers.find(m => m.id === id)?.name || '';
+
+  const fmtTime = (t) => {
+    if (!t) return '';
+    const [hs, ms] = t.split(':');
+    let h = parseInt(hs, 10); const m = ms;
+    const ap = h >= 12 ? 'p' : 'a';
+    h = h % 12; if (h === 0) h = 12;
+    return m === '00' ? `${h}${ap}` : `${h}:${m}${ap}`;
+  };
+
+  const passesFilter = (ev) => {
+    const meta = eventTypeMeta(ev.eventType);
+    if (filterCat !== 'all' && meta.cat !== filterCat) return false;
+    if (filterPerson !== 'all' && ev.memberId && ev.memberId !== filterPerson) return false;
+    return true;
+  };
+  const events = calendarEvents.filter(passesFilter);
+
+  const coversDay = (ev, d) => {
+    const s = parseLocalDate(ev.startDate); if (!s) return false;
+    const e = ev.endDate ? parseLocalDate(ev.endDate) : s;
+    return d >= s && d <= e;
+  };
+  const eventsForDay = (d) => events.filter(ev => coversDay(ev, d))
+    .sort((a, b) => (a.allDay === b.allDay ? (a.startTime || '').localeCompare(b.startTime || '') : (a.allDay ? -1 : 1)));
+
+  const chipText = (ev) => {
+    const meta = eventTypeMeta(ev.eventType);
+    const who = ev.memberId ? memberName(ev.memberId) : '';
+    const primary = meta.cat === 'avail' ? (who || meta.label) : (ev.title || meta.label);
+    const time = (!ev.allDay && ev.startTime) ? fmtTime(ev.startTime) + ' ' : '';
+    return time + primary;
+  };
+
+  // "Out this week" — availability events overlapping the current (real) week, Monday-first
+  const weekStart = new Date(today); weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
+  const overlaps = (ev, rs, re) => {
+    const s = parseLocalDate(ev.startDate); if (!s) return false;
+    const e = ev.endDate ? parseLocalDate(ev.endDate) : s;
+    return s <= re && e >= rs;
+  };
+  const outThisWeek = events
+    .filter(ev => eventTypeMeta(ev.eventType).cat === 'avail' && overlaps(ev, weekStart, weekEnd))
+    .sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''));
+  const rangeLabel = (ev) => {
+    const s = parseLocalDate(ev.startDate); const e = ev.endDate ? parseLocalDate(ev.endDate) : s;
+    const opt = { month: 'short', day: 'numeric' };
+    if (!e || s.getTime() === e.getTime()) return s.toLocaleDateString('en-US', opt);
+    return `${s.toLocaleDateString('en-US', opt)} – ${e.toLocaleDateString('en-US', opt)}`;
+  };
+
+  const firstOfMonth = new Date(viewYear, viewMonth, 1);
+  const leadWeekday = (firstOfMonth.getDay() + 6) % 7;
+  const gridStart = new Date(viewYear, viewMonth, 1 - leadWeekday);
+  const calendarCells = Array.from({ length: 42 }, (_, i) => { const d = new Date(gridStart); d.setDate(gridStart.getDate() + i); d.setHours(0, 0, 0, 0); return d; });
+  const monthLabel = firstOfMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const prevMonth = () => { const m = viewMonth - 1; if (m < 0) { setViewMonth(11); setViewYear(viewYear - 1); } else setViewMonth(m); };
+  const nextMonth = () => { const m = viewMonth + 1; if (m > 11) { setViewMonth(0); setViewYear(viewYear + 1); } else setViewMonth(m); };
+  const goToday = () => { setViewMonth(today.getMonth()); setViewYear(today.getFullYear()); };
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+        <div>
+          <h2 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
+            <Calendar size={28} className="text-brand-600" /> Calendar
+          </h2>
+          <p className="text-gray-500 mt-1">Team availability &amp; client events</p>
+        </div>
+        <button onClick={onAdd} className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg whitespace-nowrap self-start">
+          <Plus size={20} /><span>Add Event</span>
+        </button>
+      </div>
+
+      {/* Out this week */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-6">
+        <div className="flex items-center gap-2 mb-3">
+          <User size={16} className="text-gray-400" />
+          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">Out this week</h3>
+        </div>
+        {outThisWeek.length === 0 ? (
+          <p className="text-sm text-gray-400">Everyone's available this week.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {outThisWeek.map(ev => {
+              const meta = eventTypeMeta(ev.eventType);
+              return (
+                <button key={ev.id} onClick={() => onEdit(ev)} className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${meta.chip}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`}></span>
+                  {(ev.memberId ? memberName(ev.memberId) : ev.title) || meta.label} · {meta.label} · {rangeLabel(ev)}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
+        <div className="flex items-center gap-2">
+          <button onClick={prevMonth} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="Previous month"><ChevronLeft size={18} /></button>
+          <h3 className="text-lg font-bold text-gray-900 w-36 sm:w-44 text-center">{monthLabel}</h3>
+          <button onClick={nextMonth} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" title="Next month"><ChevronRight size={18} /></button>
+          <button onClick={goToday} className="ml-1 text-sm text-brand-600 hover:text-brand-700 font-medium">Today</button>
+        </div>
+        <div className="flex items-center gap-2 sm:ml-auto">
+          <select value={filterPerson} onChange={(e) => setFilterPerson(e.target.value)} className="flex-1 sm:flex-none px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <option value="all">Everyone</option>
+            {teamMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+          <select value={filterCat} onChange={(e) => setFilterCat(e.target.value)} className="flex-1 sm:flex-none px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500">
+            <option value="all">All types</option>
+            <option value="avail">Availability</option>
+            <option value="client">Client events</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Month grid */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 sm:p-4">
+        <div className="grid grid-cols-7 gap-1 mb-1">
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
+            <div key={d} className="text-center text-[10px] sm:text-xs font-semibold text-gray-400 py-1">{d}</div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-1">
+          {calendarCells.map((d, i) => {
+            const inMonth = d.getMonth() === viewMonth;
+            const isToday = d.getTime() === today.getTime();
+            const dayEvents = eventsForDay(d);
+            const shown = dayEvents.slice(0, 3);
+            const extra = dayEvents.length - shown.length;
+            return (
+              <div key={i} className={`min-h-[64px] sm:min-h-[96px] rounded-lg border p-1 flex flex-col gap-0.5 ${inMonth ? 'bg-white border-gray-100' : 'bg-gray-50 border-transparent'}`}>
+                <div className={`text-[10px] sm:text-xs font-semibold px-1 ${isToday ? 'text-white bg-brand-600 rounded-full w-5 h-5 flex items-center justify-center' : inMonth ? 'text-gray-600' : 'text-gray-300'}`}>{d.getDate()}</div>
+                {shown.map(ev => {
+                  const meta = eventTypeMeta(ev.eventType);
+                  return (
+                    <button key={ev.id} onClick={() => onEdit(ev)} title={chipText(ev)} className={`text-left truncate rounded px-1 py-0.5 text-[10px] leading-tight font-medium ${meta.chip}`}>
+                      {chipText(ev)}
+                    </button>
+                  );
+                })}
+                {extra > 0 && <span className="text-[10px] text-gray-400 px-1">+{extra} more</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="flex flex-wrap gap-x-4 gap-y-2 mt-4 px-1">
+        {EVENT_TYPE_ORDER.map(t => {
+          const meta = EVENT_TYPES[t];
+          return (
+            <span key={t} className="inline-flex items-center gap-1.5 text-xs text-gray-500">
+              <span className={`w-2.5 h-2.5 rounded-full ${meta.dot}`}></span>{meta.label}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -4744,6 +5008,114 @@ function TeamModal({ member, onSave, onClose }) {
               Cancel
             </button>
           </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Add / edit a calendar event (availability or client event)
+function CalendarEventModal({ event, teamMembers, clients, onSave, onDelete, onClose }) {
+  const [formData, setFormData] = useState(event || {
+    title: '', eventType: 'time_off', memberId: '', clientId: '',
+    startDate: '', endDate: '', allDay: true, startTime: '', endTime: '', notes: ''
+  });
+  const cat = eventTypeMeta(formData.eventType).cat;
+  const set = (patch) => setFormData(prev => ({ ...prev, ...patch }));
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.title.trim()) { alert('Please enter a title'); return; }
+    if (!formData.startDate) { alert('Please choose a start date'); return; }
+    if (formData.endDate && formData.endDate < formData.startDate) { alert('End date cannot be before start date'); return; }
+    onSave(formData);
+  };
+
+  const inputCls = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500';
+
+  return (
+    <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="modal-content bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">{event ? 'Edit Event' : 'Add Event'}</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
+            <select value={formData.eventType} onChange={(e) => set({ eventType: e.target.value })} className={inputCls}>
+              <optgroup label="Availability">
+                {EVENT_TYPE_ORDER.filter(t => EVENT_TYPES[t].cat === 'avail').map(t => <option key={t} value={t}>{EVENT_TYPES[t].label}</option>)}
+              </optgroup>
+              <optgroup label="Client">
+                {EVENT_TYPE_ORDER.filter(t => EVENT_TYPES[t].cat === 'client').map(t => <option key={t} value={t}>{EVENT_TYPES[t].label}</option>)}
+              </optgroup>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+            <input type="text" value={formData.title} onChange={(e) => set({ title: e.target.value })} className={inputCls} placeholder={cat === 'avail' ? 'Vacation' : 'Onboarding training'} autoFocus required />
+          </div>
+
+          {cat === 'avail' ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Person</label>
+              <select value={formData.memberId} onChange={(e) => set({ memberId: e.target.value })} className={inputCls}>
+                <option value="">— Select person —</option>
+                {teamMembers.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Client</label>
+              <select value={formData.clientId} onChange={(e) => set({ clientId: e.target.value })} className={inputCls}>
+                <option value="">— None —</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.name || c.company}</option>)}
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Start date *</label>
+              <input type="date" value={formData.startDate} onChange={(e) => set({ startDate: e.target.value })} className={inputCls} required />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">End date</label>
+              <input type="date" value={formData.endDate} min={formData.startDate || undefined} onChange={(e) => set({ endDate: e.target.value })} className={inputCls} />
+            </div>
+          </div>
+
+          <label className="flex items-center gap-2 text-sm text-gray-700">
+            <input type="checkbox" checked={formData.allDay} onChange={(e) => set({ allDay: e.target.checked })} className="rounded border-gray-300 text-brand-600 focus:ring-brand-500" />
+            All day
+          </label>
+
+          {!formData.allDay && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Start time</label>
+                <input type="time" value={formData.startTime} onChange={(e) => set({ startTime: e.target.value })} className={inputCls} />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">End time</label>
+                <input type="time" value={formData.endTime} onChange={(e) => set({ endTime: e.target.value })} className={inputCls} />
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+            <textarea value={formData.notes} onChange={(e) => set({ notes: e.target.value })} rows={3} className={inputCls} placeholder="Optional details" />
+          </div>
+
+          <div className="flex items-center gap-3 pt-4">
+            <button type="submit" className="flex-1 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors">Save Event</button>
+            <button type="button" onClick={onClose} className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg transition-colors">Cancel</button>
+          </div>
+          {event && (
+            <button type="button" onClick={() => { onClose(); onDelete(event.id); }} className="w-full flex items-center justify-center gap-2 text-sm text-red-600 hover:text-red-700 pt-1">
+              <Trash2 size={16} /> Delete event
+            </button>
+          )}
         </form>
       </div>
     </div>

@@ -6,7 +6,7 @@
 - **Repo:** github.com/MCG-Jesse/client-success-hub2. `main` == deployed. `feature/multi-tenant` merged into `main`.
 - **Access model (decided):** OPEN self-service SaaS — anyone signs up → gets own private workspace → invites their own team. No platform super-admin (operator oversight = Supabase dashboard).
 
-**Working (verified in prod):** email+password auth gate, per-workspace data isolation (RLS), roles (owner/admin/member), email invites + shareable invite links, workspace switcher, all CRUD persisting to Supabase, PBB template bulk-insert, Kanban custom columns per-workspace, name-at-signup.
+**Working (verified in prod):** email+password auth gate, per-workspace data isolation (RLS), roles (owner/admin/member), email invites + shareable invite links, workspace switcher, all CRUD persisting to Supabase, PBB template bulk-insert, Kanban custom columns per-workspace, name-at-signup, **Team Calendar** (availability + client events on a month grid — `calendar_events` table, `CalendarEventsView`/`CalendarEventModal` in App.jsx).
 
 **Half/not implemented:** automatic invite emails (only manual link-share today), custom SMTP, operator console, billing, custom domain, leaked-password protection toggle (off), email-confirmation decision pending.
 
@@ -27,7 +27,7 @@
 - Date helpers: `parseLocalDate` (parses 'YYYY-MM-DD' as LOCAL midnight — avoids UTC off-by-one), `startOfToday`, `isTaskOverdue`. Use these, never raw `new Date('YYYY-MM-DD')`.
 - Hardening: `ErrorBoundary` (per-view keyed by activeTab + top-level in main.jsx), spinner loading state, localStorage-validation removed (now DB).
 
-**Supabase schema (public):** `workspaces`, `workspace_members`(email,name), `team_members`(user_id), `clients`, `projects`, `tasks`(subtasks jsonb, sort_order), `resources`, `invites`(email nullable, token, workspace_name, status, role), `board_columns`(workspace_id PK, columns jsonb).
+**Supabase schema (public):** `workspaces`, `workspace_members`(email,name), `team_members`(user_id), `clients`, `projects`, `tasks`(subtasks jsonb, sort_order), `resources`, `invites`(email nullable, token, workspace_name, status, role), `board_columns`(workspace_id PK, columns jsonb), `calendar_events`(event_type, member_id→team_members, client_id→clients, start_date/end_date, all_day, start_time/end_time, notes, created_by; RLS = `is_workspace_member`).
 **Private schema:** `is_workspace_member(uuid)`, `is_workspace_admin(uuid)`, `handle_new_user()` (trigger `on_auth_user_created` on auth.users → creates workspace + owner membership + owner team seat).
 **Public RPCs (SECURITY DEFINER, authenticated-only):** `accept_invite(uuid)`, `accept_invite_by_token(text)`, `get_invite_by_token(text)`.
 **RLS:** all tables scoped via `private.is_workspace_member(workspace_id)`; invites readable by members OR invitee (`lower(email)=lower(auth.jwt()->>'email')`); admin-only invite create/delete + member remove via `is_workspace_admin`.
