@@ -42,14 +42,14 @@
 - **`CREATE OR REPLACE FUNCTION` RESETS grants** → the 3 SECURITY DEFINER RPCs become anon-executable. ALWAYS re-run after replacing them: `revoke execute on function public.<fn> from public, anon; grant execute ... to authenticated;` (currently correctly locked).
 - **Supabase built-in email is RATE-LIMITED** ("email rate limit exceeded") — blocks bulk signups. For TESTING create users via SQL: `insert into auth.users (... email, encrypted_password=extensions.crypt(pw, extensions.gen_salt('bf')), email_confirmed_at=now(), raw_user_meta_data={"full_name":..,"workspace_name":..}, confirmation_token='',recovery_token='',email_change_token_new='',email_change='')`. Trigger fires on insert. Delete test users via `delete from auth.users where email like ...` (FK-cascades all workspace data).
 - **Vite bakes VITE_ vars at BUILD time** — env vars MUST be in Render before any deploy or the live app can't reach Supabase (login screen renders but signup/login throws "Failed to fetch").
-- **Security advisor:** 3 intentional WARNs remain (accept_invite / accept_invite_by_token / get_invite_by_token authenticated-executable — required; they self-check auth) + **leaked_password_protection disabled** (dashboard toggle, not yet enabled).
+- **Security advisor:** 3 intentional WARNs remain (accept_invite / accept_invite_by_token / get_invite_by_token authenticated-executable — required; they self-check auth) + **leaked_password_protection disabled**. NOTE: this toggle (Auth → Providers → Email, "Prevent use of leaked passwords") requires a **Supabase Pro plan** — project is on free tier, so left OFF intentionally. Revisit alongside a Pro upgrade (also needed to avoid free-tier project auto-pause + get backups) when moving from pilot to real traffic.
 - **Lint:** ~16 PRE-EXISTING problems in App.jsx (15 errors incl. "Cannot create components during render" in StatCard/StatusBadge region, no-case-declarations in TableView sort, unused `Icon`). Not introduced this session; build passes (Vite doesn't run eslint).
 - **Jesse's account** `jesse.muniz@tylertech.com` predates name capture — manually backfilled `name='Jesse Muñiz'` on membership + seat. Has a DUPLICATE leftover manual team seat "Jesse" (`bjmuniz1@gmail.com`) to delete in Team tab.
 
 ## 4. Next Steps (all optional — app is live/working; pick per priority)
 - **Custom SMTP (Resend) in Supabase Auth** — HIGHEST before real traffic; fixes email rate limit for confirmation/invite emails.
 - **Automatic invite emails** — trigger a Supabase Edge Function on invite insert to email the link (currently manual copy/share).
-- **Decide email confirmation** (Auth → Providers → Email "Confirm email") + **enable leaked-password protection** (Auth → Password).
+- **Decide email confirmation** (Auth → Providers → Email "Confirm email"). (Leaked-password protection is Pro-only — see Gotchas; deferred with the Pro decision.)
 - **Merge "Workspace Access" + "Team Members"** into one "People" list (login members vs assignment-only seats) — removes redundancy from auto-seats.
 - **Operator/platform-admin console** — in-app view of workspaces/users/usage (NOT their client data).
 - **Billing** (Stripe) if productizing; **custom domain** on Render + update Supabase Site URL.
