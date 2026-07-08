@@ -30,7 +30,11 @@
 **Supabase schema (public):** `workspaces`, `workspace_members`(email,name), `team_members`(user_id), `clients`, `projects`, `tasks`(subtasks jsonb, sort_order), `resources`, `invites`(email nullable, token, workspace_name, status, role), `board_columns`(workspace_id PK, columns jsonb), `calendar_events`(event_type, member_id→team_members, client_id→clients, start_date/end_date, all_day, start_time/end_time, notes, created_by; RLS = `is_workspace_member`).
 **Private schema:** `is_workspace_member(uuid)`, `is_workspace_admin(uuid)`, `handle_new_user()` (trigger `on_auth_user_created` on auth.users → creates workspace + owner membership + owner team seat).
 **Public RPCs (SECURITY DEFINER, authenticated-only):** `accept_invite(uuid)`, `accept_invite_by_token(text)`, `get_invite_by_token(text)`.
-**RLS:** all tables scoped via `private.is_workspace_member(workspace_id)`; invites readable by members OR invitee (`lower(email)=lower(auth.jwt()->>'email')`); admin-only invite create/delete + member remove via `is_workspace_admin`.
+**RLS:** most tables scoped via `private.is_workspace_member(workspace_id)`; invites readable by members OR invitee (`lower(email)=lower(auth.jwt()->>'email')`); admin-only invite create/delete + member remove via `is_workspace_admin`. **`team_members` and `clients` are admin-managed**: members can SELECT (needed for assignee/calendar/project dropdowns) but only owner/admin INSERT/UPDATE/DELETE (`admins manage <table>` policies via `is_workspace_admin`). Frontend mirrors this via `canManage` (TeamView, ClientsView, ClientDetailView hide add/edit/delete for members). Tasks, projects, resources, calendar_events remain member-writable.
+
+**Role model (decided):** Members see everything (full collaboration) but cannot edit the Team roster or Clients — only owner/admin can. This was a deliberate choice (not "members see only their own tasks").
+
+**Login defaults:** `activeTab` starts on `'mytasks'` (Today). Today's "viewing as" defaults to the logged-in user's own team seat (their tasks), matched via `teamMembers` `userId` (= `team_members.user_id`) vs `session.user.id`; remembered per user under `my-tasks-user:<userId>`. Both the Calendar view and the Today mini-calendar are **Sunday-first**.
 
 ## 3. Errors & Roadblocks / Gotchas
 - **`CREATE OR REPLACE FUNCTION` RESETS grants** → the 3 SECURITY DEFINER RPCs become anon-executable. ALWAYS re-run after replacing them: `revoke execute on function public.<fn> from public, anon; grant execute ... to authenticated;` (currently correctly locked).
