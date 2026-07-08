@@ -199,7 +199,7 @@ const taskToDb = (t) => ({
   sort_order: t.order || 0
 });
 
-const dbToTeam = (r) => ({ id: r.id, name: r.name || '', role: r.role || '', email: r.email || '' });
+const dbToTeam = (r) => ({ id: r.id, name: r.name || '', role: r.role || '', email: r.email || '', userId: r.user_id || '' });
 const teamToDb = (m) => ({ name: m.name || '', role: nz(m.role), email: nz(m.email) });
 
 const dbToLink = (r) => ({ id: r.id, title: r.title || '', url: r.url || '', description: r.description || '', dateAdded: r.date_added || r.created_at });
@@ -412,7 +412,7 @@ export default function AppRoot() {
 }
 
 function ClientProjectManager({ session, onSignOut, joinToken }) {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('mytasks');
   const [workspaces, setWorkspaces] = useState([]);
   const [currentWorkspaceId, setCurrentWorkspaceId] = useState(null);
   const [members, setMembers] = useState([]);
@@ -1175,6 +1175,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
               projects={projects}
               clients={clients}
               teamMembers={teamMembers}
+              currentUserId={session.user.id}
               onAdd={() => { setEditingItem(null); setShowTaskModal(true); }}
               onEdit={(task) => { setEditingItem(task); setShowTaskModal(true); }}
               onDelete={deleteTask}
@@ -2242,9 +2243,12 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
 }
 
 // My Tasks View Component (Today-style personal agenda)
-function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDelete, onUpdateStatus }) {
-  // Persisted "Viewing as" identity so the agenda feels personal without auth
-  const [meId, setMeId] = useState(() => localStorage.getItem('my-tasks-user') || 'all');
+function MyTasksView({ tasks, projects, clients, teamMembers, currentUserId, onAdd, onEdit, onDelete, onUpdateStatus }) {
+  // "Viewing as" identity — defaults to the logged-in user's own seat so the
+  // agenda opens on THEIR tasks. Explicit choices are remembered per user.
+  const storageKey = `my-tasks-user:${currentUserId}`;
+  const mySeatId = teamMembers.find(m => m.userId === currentUserId)?.id || null;
+  const [meId, setMeId] = useState(() => localStorage.getItem(storageKey) || '');
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
 
@@ -2254,11 +2258,13 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
   const [viewYear, setViewYear] = useState(today.getFullYear());
 
   useEffect(() => {
-    localStorage.setItem('my-tasks-user', meId);
-  }, [meId]);
+    if (meId) localStorage.setItem(storageKey, meId);
+  }, [meId, storageKey]);
 
-  // Fall back to "Everyone" if the saved team member no longer exists
-  const effectiveMeId = (meId !== 'all' && !teamMembers.some(m => m.id === meId)) ? 'all' : meId;
+  // Default to my own tasks; honor an explicit valid saved choice; else fall back.
+  const effectiveMeId = (meId && (meId === 'all' || teamMembers.some(m => m.id === meId)))
+    ? meId
+    : (mySeatId || 'all');
 
   const projectPalette = ['bg-brand-500', 'bg-green-500', 'bg-amber-500', 'bg-orange-500', 'bg-teal-500', 'bg-gray-500'];
   const projectColor = (projectId) => {
