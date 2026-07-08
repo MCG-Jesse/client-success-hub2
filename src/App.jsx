@@ -1209,6 +1209,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
           {activeTab === 'clients' && (
             <ClientsView
               clients={clients}
+              canManage={canManageAccess}
               onAdd={() => { setEditingItem(null); setShowClientModal(true); }}
               onEdit={(client) => { setEditingItem(client); setShowClientModal(true); }}
               onDelete={deleteClient}
@@ -1372,6 +1373,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
         <ClientDetailView
           client={editingItem}
           teamMembers={teamMembers}
+          canManage={canManageAccess}
           onClose={() => {
             setShowClientDetailModal(false);
             setEditingItem(null);
@@ -2746,31 +2748,35 @@ function CalendarEventsView({ calendarEvents, teamMembers, clients, onAdd, onEdi
 }
 
 // Clients View Component (Enhanced with navigation)
-function ClientsView({ clients, onAdd, onEdit, onDelete, onView, projects, tasks, teamMembers, onNavigate }) {
+function ClientsView({ clients, canManage, onAdd, onEdit, onDelete, onView, projects, tasks, teamMembers, onNavigate }) {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-3xl font-bold text-gray-900">Clients</h2>
-        <button
-          onClick={onAdd}
-          className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
-        >
-          <Plus size={20} />
-          <span>Add Client</span>
-        </button>
+        {canManage && (
+          <button
+            onClick={onAdd}
+            className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          >
+            <Plus size={20} />
+            <span>Add Client</span>
+          </button>
+        )}
       </div>
 
       {clients.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
           <Users size={48} className="mx-auto text-gray-300 mb-4" />
           <h3 className="text-xl font-semibold text-gray-900 mb-2">No clients yet</h3>
-          <p className="text-gray-600 mb-4">Start by adding your first client to track their projects and tasks.</p>
-          <button
-            onClick={onAdd}
-            className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg transition-colors"
-          >
-            Add Your First Client
-          </button>
+          <p className="text-gray-600 mb-4">{canManage ? 'Start by adding your first client to track their projects and tasks.' : 'An owner or admin can add clients.'}</p>
+          {canManage && (
+            <button
+              onClick={onAdd}
+              className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg transition-colors"
+            >
+              Add Your First Client
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -2788,20 +2794,22 @@ function ClientsView({ clients, onAdd, onEdit, onDelete, onView, projects, tasks
                     <h3 className="text-xl font-bold text-gray-900">{client.name}</h3>
                     <p className="text-gray-600">{client.company}</p>
                   </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => onEdit(client)}
-                      className="text-gray-600 hover:text-brand-600 transition-colors"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button
-                      onClick={() => onDelete(client.id)}
-                      className="text-gray-600 hover:text-red-600 transition-colors"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
+                  {canManage && (
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => onEdit(client)}
+                        className="text-gray-600 hover:text-brand-600 transition-colors"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button
+                        onClick={() => onDelete(client.id)}
+                        className="text-gray-600 hover:text-red-600 transition-colors"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 
                 <div className="space-y-2 mb-4">
@@ -4352,9 +4360,9 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
 }
 
 // Client Detail View Component
-function ClientDetailView({ client, teamMembers, onClose, onEdit }) {
+function ClientDetailView({ client, teamMembers, canManage, onClose, onEdit }) {
   const assignedMember = teamMembers.find(m => m.id === client.assignedTo);
-  
+
   return (
     <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="modal-content bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
@@ -4365,12 +4373,14 @@ function ClientDetailView({ client, teamMembers, onClose, onEdit }) {
             {client.company && <p className="text-brand-100 mt-1">{client.company}</p>}
           </div>
           <div className="flex space-x-2">
-            <button
-              onClick={onEdit}
-              className="px-4 py-2 bg-white hover:bg-brand-50 text-brand-700 rounded-lg transition-colors font-medium"
-            >
-              Edit
-            </button>
+            {canManage && (
+              <button
+                onClick={onEdit}
+                className="px-4 py-2 bg-white hover:bg-brand-50 text-brand-700 rounded-lg transition-colors font-medium"
+              >
+                Edit
+              </button>
+            )}
             <button
               onClick={onClose}
               className="px-4 py-2 bg-brand-800 hover:bg-brand-900 text-white rounded-lg transition-colors"
