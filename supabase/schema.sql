@@ -153,8 +153,12 @@ create policy "owner can delete workspace" on public.workspaces
 create policy "members can read membership" on public.workspace_members
   for select using (private.is_workspace_member(workspace_id));
 
-create policy "members manage team_members" on public.team_members
-  for all using (private.is_workspace_member(workspace_id)) with check (private.is_workspace_member(workspace_id));
+-- Team roster is admin-managed: all members can READ (for assignee dropdowns,
+-- calendar person picker, etc.), but only owner/admin can add/edit/delete seats.
+create policy "members read team_members" on public.team_members
+  for select using (private.is_workspace_member(workspace_id));
+create policy "admins manage team_members" on public.team_members
+  for all using (private.is_workspace_admin(workspace_id)) with check (private.is_workspace_admin(workspace_id));
 create policy "members manage clients" on public.clients
   for all using (private.is_workspace_member(workspace_id)) with check (private.is_workspace_member(workspace_id));
 create policy "members manage projects" on public.projects

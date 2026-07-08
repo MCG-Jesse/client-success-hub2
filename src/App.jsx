@@ -1282,6 +1282,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
               <TeamView
                 teamMembers={teamMembers}
                 tasks={tasks}
+                canManage={canManageAccess}
                 onAdd={() => { setEditingItem(null); setShowTeamModal(true); }}
                 onEdit={(member) => { setEditingItem(member); setShowTeamModal(true); }}
                 onDelete={deleteTeamMember}
@@ -2612,7 +2613,7 @@ function CalendarEventsView({ calendarEvents, teamMembers, clients, onAdd, onEdi
   };
 
   // "Out this week" — availability events overlapping the current (real) week, Monday-first
-  const weekStart = new Date(today); weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+  const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay());
   const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
   const overlaps = (ev, rs, re) => {
     const s = parseLocalDate(ev.startDate); if (!s) return false;
@@ -2630,7 +2631,7 @@ function CalendarEventsView({ calendarEvents, teamMembers, clients, onAdd, onEdi
   };
 
   const firstOfMonth = new Date(viewYear, viewMonth, 1);
-  const leadWeekday = (firstOfMonth.getDay() + 6) % 7;
+  const leadWeekday = firstOfMonth.getDay();
   const gridStart = new Date(viewYear, viewMonth, 1 - leadWeekday);
   const calendarCells = Array.from({ length: 42 }, (_, i) => { const d = new Date(gridStart); d.setDate(gridStart.getDate() + i); d.setHours(0, 0, 0, 0); return d; });
   const monthLabel = firstOfMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
@@ -2700,7 +2701,7 @@ function CalendarEventsView({ calendarEvents, teamMembers, clients, onAdd, onEdi
       {/* Month grid */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 sm:p-4">
         <div className="grid grid-cols-7 gap-1 mb-1">
-          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(d => (
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
             <div key={d} className="text-center text-[10px] sm:text-xs font-semibold text-gray-400 py-1">{d}</div>
           ))}
         </div>
@@ -4014,31 +4015,35 @@ function WorkspaceAccess({ members, invites, linkInvites, currentUserId, canMana
 }
 
 // Team View Component
-function TeamView({ teamMembers, tasks, onAdd, onEdit, onDelete }) {
+function TeamView({ teamMembers, tasks, canManage, onAdd, onEdit, onDelete }) {
   return (
     <div>
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-3xl font-bold text-gray-900">Team Members</h2>
-        <button
-          onClick={onAdd}
-          className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
-        >
-          <Plus size={20} />
-          <span>Add Team Member</span>
-        </button>
+        {canManage && (
+          <button
+            onClick={onAdd}
+            className="flex items-center space-x-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg transition-colors shadow-md hover:shadow-lg"
+          >
+            <Plus size={20} />
+            <span>Add Team Member</span>
+          </button>
+        )}
       </div>
 
       {teamMembers.length === 0 ? (
         <div className="bg-white rounded-lg border border-gray-200 p-12 text-center">
           <User size={48} className="mx-auto text-gray-300 mb-4" />
           <h3 className="text-xl font-semibold text-gray-900 mb-2">No team members yet</h3>
-          <p className="text-gray-600 mb-4">Add your team members to assign tasks.</p>
-          <button
-            onClick={onAdd}
-            className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg transition-colors"
-          >
-            Add Your First Team Member
-          </button>
+          <p className="text-gray-600 mb-4">{canManage ? 'Add your team members to assign tasks.' : 'An owner or admin can add team members.'}</p>
+          {canManage && (
+            <button
+              onClick={onAdd}
+              className="bg-brand-600 hover:bg-brand-700 text-white px-6 py-2 rounded-lg transition-colors"
+            >
+              Add Your First Team Member
+            </button>
+          )}
         </div>
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -4053,20 +4058,22 @@ function TeamView({ teamMembers, tasks, onAdd, onEdit, onDelete }) {
                     <h3 className="text-xl font-bold text-gray-900">{member.name}</h3>
                     <p className="text-gray-600">{member.role}</p>
                   </div>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => onEdit(member)}
-                      className="text-gray-600 hover:text-brand-600 transition-colors"
-                    >
-                      <Edit2 size={18} />
-                    </button>
-                    <button
-                      onClick={() => onDelete(member.id)}
-                      className="text-gray-600 hover:text-red-600 transition-colors"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
+                  {canManage && (
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => onEdit(member)}
+                        className="text-gray-600 hover:text-brand-600 transition-colors"
+                      >
+                        <Edit2 size={18} />
+                      </button>
+                      <button
+                        onClick={() => onDelete(member.id)}
+                        className="text-gray-600 hover:text-red-600 transition-colors"
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 
                 {member.email && (
