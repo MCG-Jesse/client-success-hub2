@@ -2396,7 +2396,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
 
   // Build the 6-week calendar grid (Monday-first)
   const firstOfMonth = new Date(viewYear, viewMonth, 1);
-  const leadWeekday = (firstOfMonth.getDay() + 6) % 7; // 0 = Monday
+  const leadWeekday = firstOfMonth.getDay(); // 0 = Sunday
   const gridStart = new Date(viewYear, viewMonth, 1 - leadWeekday);
   const calendarCells = Array.from({ length: 42 }, (_, i) => {
     const d = new Date(gridStart);
@@ -2524,7 +2524,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onD
               </div>
             </div>
             <div className="grid grid-cols-7 gap-1 mb-1">
-              {['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'].map(d => (
+              {['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'].map(d => (
                 <div key={d} className="text-center text-[10px] font-semibold text-gray-400 py-1">{d}</div>
               ))}
             </div>
