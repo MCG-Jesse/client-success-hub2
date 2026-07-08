@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, ChevronLeft, List, BookOpen, FileText, Link, Download, Upload, Table, PieChart, TrendingUp, Filter, Circle, Sun, LogOut, Copy } from 'lucide-react';
+import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, ChevronLeft, List, BookOpen, FileText, Link, Download, Upload, Table, PieChart, TrendingUp, Filter, Circle, Sun, LogOut, Copy, MessageSquare } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 // PBB Template Definition
@@ -146,6 +146,15 @@ const EVENT_TYPES = {
 const EVENT_TYPE_ORDER = ['time_off', 'travel', 'sick', 'holiday', 'client_meeting', 'training', 'other'];
 const eventTypeMeta = (t) => EVENT_TYPES[t] || EVENT_TYPES.other;
 
+// Feedback ticket statuses (operator-set; users see the badge on their own submissions)
+const FEEDBACK_STATUS = {
+  new:       { label: 'New',       badge: 'bg-brand-100 text-brand-700 border border-brand-200' },
+  reviewing: { label: 'Reviewing', badge: 'bg-amber-100 text-amber-800 border border-amber-200' },
+  done:      { label: 'Done',      badge: 'bg-green-100 text-green-700 border border-green-200' },
+  declined:  { label: 'Declined',  badge: 'bg-gray-100 text-gray-600 border border-gray-200' }
+};
+const feedbackStatusMeta = (s) => FEEDBACK_STATUS[s] || FEEDBACK_STATUS.new;
+
 // Date helpers — parse 'YYYY-MM-DD' strings as LOCAL midnight to avoid the UTC
 // off-by-one that new Date('YYYY-MM-DD') causes in timezones behind UTC.
 const parseLocalDate = (s) => (s ? new Date(s + 'T00:00:00') : null);
@@ -218,6 +227,11 @@ const eventToDb = (e) => ({
   start_date: nz(e.startDate), end_date: nz(e.endDate),
   all_day: e.allDay !== false, start_time: nz(e.startTime), end_time: nz(e.endTime),
   notes: nz(e.notes)
+});
+
+const dbToFeedback = (r) => ({
+  id: r.id, type: r.type || 'bug', message: r.message || '', page: r.page || '',
+  status: r.status || 'new', createdAt: r.created_at
 });
 
 // Catches render errors so a crash in one view (or a bad localStorage record)
@@ -427,6 +441,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
   const [tasks, setTasks] = useState([]);
   const [teamMembers, setTeamMembers] = useState([]);
   const [calendarEvents, setCalendarEvents] = useState([]);
+  const [feedback, setFeedback] = useState([]);
   const [resources, setResources] = useState({ links: [] });
   const [loading, setLoading] = useState(true);
   const [notification, setNotification] = useState(null);
@@ -440,6 +455,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
   const [showProjectDetailModal, setShowProjectDetailModal] = useState(false);
   const [showClientDetailModal, setShowClientDetailModal] = useState(false);
   const [showCalendarEventModal, setShowCalendarEventModal] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
 
   // Storage helper - uses localStorage
@@ -562,7 +578,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
     if (!wsId) { setLoading(false); return; }
     localStorage.setItem('current-workspace', wsId);
     try {
-      const [c, p, t, tm, r, mem, inv, bc, ev] = await Promise.all([
+      const [c, p, t, tm, r, mem, inv, bc, ev, fb] = await Promise.all([
         supabase.from('clients').select('*').eq('workspace_id', wsId),
         supabase.from('projects').select('*').eq('workspace_id', wsId),
         supabase.from('tasks').select('*').eq('workspace_id', wsId),
@@ -571,9 +587,10 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
         supabase.from('workspace_members').select('id, user_id, email, name, role').eq('workspace_id', wsId),
         supabase.from('invites').select('id, email, role, token, created_at').eq('workspace_id', wsId).eq('status', 'pending'),
         supabase.from('board_columns').select('columns').eq('workspace_id', wsId).maybeSingle(),
-        supabase.from('calendar_events').select('*').eq('workspace_id', wsId)
+        supabase.from('calendar_events').select('*').eq('workspace_id', wsId),
+        supabase.from('feedback').select('*').eq('workspace_id', wsId).order('created_at', { ascending: false })
       ]);
-      const firstErr = c.error || p.error || t.error || tm.error || r.error || mem.error || inv.error || ev.error;
+      const firstErr = c.error || p.error || t.error || tm.error || r.error || mem.error || inv.error || ev.error || fb.error;
       if (firstErr) throw firstErr;
       const cols = (Array.isArray(bc.data?.columns) && bc.data.columns.length) ? bc.data.columns : DEFAULT_COLUMNS;
       setBoardColumns(cols);
@@ -583,6 +600,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
       setTasks((t.data || []).map(dbToTask));
       setTeamMembers((tm.data || []).map(dbToTeam));
       setCalendarEvents((ev.data || []).map(dbToEvent));
+      setFeedback((fb.data || []).map(dbToFeedback));
       setResources({ links: (r.data || []).map(dbToLink) });
       setMembers(mem.data || []);
       const allInvites = inv.data || [];
@@ -828,6 +846,22 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
     if (error) return dbError('Error deleting event. Please try again.', error);
     setCalendarEvents(prev => prev.filter(e => e.id !== id));
     showNotification('Event deleted successfully!');
+  };
+
+  // Feedback / bug reports (any member can submit; routes to operator)
+  const addFeedback = async ({ type, message }) => {
+    const { data, error } = await supabase.from('feedback').insert({
+      workspace_id: workspace?.id || null,
+      user_id: session.user.id,
+      email: session.user.email,
+      type,
+      message,
+      page: activeTab,
+      user_role: myRole
+    }).select().single();
+    if (error) return dbError('Could not send your feedback. Please try again.', error);
+    setFeedback(prev => [dbToFeedback(data), ...prev]);
+    showNotification('Thanks! Your feedback was sent.');
   };
 
   // Team functions
@@ -1454,6 +1488,24 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
             setEditingItem(null);
           }}
           onClose={() => { setShowCalendarEventModal(false); setEditingItem(null); }}
+        />
+      )}
+
+      {/* Floating feedback button — available on every page */}
+      <button
+        onClick={() => setShowFeedbackModal(true)}
+        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-3 rounded-full shadow-lg transition-colors"
+        title="Send feedback or report a problem"
+      >
+        <MessageSquare size={20} />
+        <span className="hidden sm:inline font-medium">Feedback</span>
+      </button>
+
+      {showFeedbackModal && (
+        <FeedbackModal
+          feedback={feedback}
+          onSubmit={addFeedback}
+          onClose={() => setShowFeedbackModal(false)}
         />
       )}
     </div>
@@ -5140,6 +5192,77 @@ function CalendarEventModal({ event, teamMembers, clients, onSave, onDelete, onC
             </button>
           )}
         </form>
+      </div>
+    </div>
+  );
+}
+
+// Feedback / bug-report panel — submit a ticket and see your own past submissions
+function FeedbackModal({ feedback, onSubmit, onClose }) {
+  const [type, setType] = useState('bug');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!message.trim()) { alert('Please describe the issue or suggestion.'); return; }
+    setSending(true);
+    await onSubmit({ type, message: message.trim() });
+    setSending(false);
+    setMessage('');
+    setType('bug');
+  };
+
+  const fmtDate = (s) => { try { return new Date(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); } catch { return ''; } };
+
+  return (
+    <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="modal-content bg-white rounded-lg shadow-xl max-w-lg w-full p-6">
+        <div className="flex items-start justify-between mb-1">
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2"><MessageSquare size={22} className="text-brand-600" /> Feedback</h2>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={22} /></button>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">Found a bug or have a suggestion? Let us know — we read every one.</p>
+
+        <form onSubmit={submit} className="space-y-3">
+          <div className="flex gap-2">
+            {[['bug', 'Bug'], ['suggestion', 'Suggestion']].map(([val, label]) => (
+              <button key={val} type="button" onClick={() => setType(val)}
+                className={`flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${type === val ? 'bg-brand-600 text-white border-brand-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={4} autoFocus
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
+            placeholder={type === 'bug' ? 'What went wrong? What did you expect to happen?' : 'What would make this better?'} />
+          <button type="submit" disabled={sending}
+            className="w-full bg-brand-600 hover:bg-brand-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg transition-colors font-medium">
+            {sending ? 'Sending…' : 'Send feedback'}
+          </button>
+        </form>
+
+        {feedback.length > 0 && (
+          <div className="mt-6 pt-4 border-t border-gray-100">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">Your submissions</h3>
+            <div className="space-y-2.5 max-h-56 overflow-y-auto">
+              {feedback.map(f => {
+                const st = feedbackStatusMeta(f.status);
+                return (
+                  <div key={f.id} className="flex items-start justify-between gap-3 text-sm">
+                    <p className="min-w-0 text-gray-700">
+                      <span className="text-gray-400 capitalize">{f.type} · </span>{f.message}
+                    </p>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${st.badge}`}>{st.label}</span>
+                      <span className="text-xs text-gray-400">{fmtDate(f.createdAt)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

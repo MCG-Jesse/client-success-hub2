@@ -112,6 +112,22 @@ create table public.calendar_events (
 );
 create index calendar_events_ws_start_idx on public.calendar_events (workspace_id, start_date);
 
+-- Product feedback / bug reports. Routes to the operator (reviewed via service
+-- role / Supabase MCP), NOT visible to teammates. Users see only their own.
+create table public.feedback (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid references public.workspaces(id) on delete set null,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  email text,
+  type text not null default 'bug',        -- bug | suggestion
+  message text not null,
+  page text,                               -- which tab/page they were on
+  user_role text,                          -- their workspace role at submission
+  status text not null default 'new',      -- new | reviewing | done | declined
+  created_at timestamptz not null default now()
+);
+create index feedback_status_idx on public.feedback (status, created_at desc);
+
 -- ============ Private helpers (not exposed via PostgREST) ============
 
 create schema if not exists private;
@@ -142,6 +158,7 @@ alter table public.projects enable row level security;
 alter table public.tasks enable row level security;
 alter table public.resources enable row level security;
 alter table public.calendar_events enable row level security;
+alter table public.feedback enable row level security;
 
 create policy "members can read workspaces" on public.workspaces
   for select using (private.is_workspace_member(id));
@@ -173,6 +190,10 @@ create policy "members manage resources" on public.resources
   for all using (private.is_workspace_member(workspace_id)) with check (private.is_workspace_member(workspace_id));
 create policy "members manage calendar_events" on public.calendar_events
   for all using (private.is_workspace_member(workspace_id)) with check (private.is_workspace_member(workspace_id));
+create policy "users insert own feedback" on public.feedback
+  for insert with check (user_id = auth.uid());
+create policy "users read own feedback" on public.feedback
+  for select using (user_id = auth.uid());
 
 -- ============ Auto-provision workspace + owner on signup ============
 
