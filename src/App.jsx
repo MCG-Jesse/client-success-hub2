@@ -4209,7 +4209,11 @@ function StatusBadge({ status }) {
 
 // Modal Components
 function ClientModal({ client, teamMembers, onSave, onClose }) {
-  const [formData, setFormData] = useState(client || {
+  const formatPopulation = (v) => {
+    const digits = String(v ?? '').replace(/[^\d]/g, '');
+    return digits ? Number(digits).toLocaleString('en-US') : (v || '');
+  };
+  const [formData, setFormData] = useState(client ? { ...client, populationSize: formatPopulation(client.populationSize) } : {
     name: '',
     company: '',
     email: '',
@@ -4259,14 +4263,14 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
             
             <div className="col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Company
+                Main Contact
               </label>
               <input
                 type="text"
                 value={formData.company}
                 onChange={(e) => setFormData({ ...formData, company: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
-                placeholder="Acme Corp"
+                placeholder="Jane Smith"
               />
             </div>
             
@@ -4319,7 +4323,8 @@ function ClientModal({ client, teamMembers, onSave, onClose }) {
               <input
                 type="text"
                 value={formData.populationSize}
-                onChange={(e) => setFormData({ ...formData, populationSize: e.target.value })}
+                onChange={(e) => setFormData({ ...formData, populationSize: formatPopulation(e.target.value) })}
+                inputMode="numeric"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="e.g., 50,000"
               />
