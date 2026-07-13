@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, ChevronLeft, List, BookOpen, FileText, Link, Download, Upload, Table, PieChart, TrendingUp, Filter, Circle, Sun, LogOut, Copy, MessageSquare } from 'lucide-react';
+import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, ChevronLeft, List, BookOpen, FileText, Link, Download, Upload, Table, PieChart, TrendingUp, Filter, Circle, Sun, LogOut, Copy, MessageSquare, Lock } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 // PBB Template Definition
@@ -198,14 +198,16 @@ const dbToTask = (r) => ({
   startDate: r.start_date || '', dueDate: r.due_date || '',
   subtasks: Array.isArray(r.subtasks) ? r.subtasks : [],
   phase: r.phase || '', phaseName: r.phase_name || '', section: r.section || '', sectionName: r.section_name || '',
-  order: r.sort_order || 0
+  order: r.sort_order || 0,
+  isPrivate: r.is_private === true, createdBy: r.created_by || ''
 });
 const taskToDb = (t) => ({
   title: t.title || '', description: nz(t.description), project_id: nz(t.projectId), assigned_to: nz(t.assignedTo),
   status: t.status || 'todo', priority: t.priority || 'medium', start_date: nz(t.startDate), due_date: nz(t.dueDate),
   subtasks: Array.isArray(t.subtasks) ? t.subtasks : [],
   phase: nz(t.phase), phase_name: nz(t.phaseName), section: nz(t.section), section_name: nz(t.sectionName),
-  sort_order: t.order || 0
+  sort_order: t.order || 0,
+  is_private: t.isPrivate === true
 });
 
 const dbToTeam = (r) => ({ id: r.id, name: r.name || '', role: r.role || '', email: r.email || '', userId: r.user_id || '' });
@@ -774,7 +776,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
     setProjects(prev => [...prev, newProject]);
 
     if (usePBBTemplate) {
-      const rows = generatePBBTasks(newProject.id).map(t => ({ ...taskToDb(t), workspace_id: workspace.id }));
+      const rows = generatePBBTasks(newProject.id).map(t => ({ ...taskToDb(t), workspace_id: workspace.id, created_by: session.user.id }));
       const { data: taskData, error: taskErr } = await supabase.from('tasks').insert(rows).select();
       if (taskErr) return dbError('Project created, but template tasks failed to save.', taskErr);
       setTasks(prev => [...prev, ...(taskData || []).map(dbToTask)]);
@@ -803,7 +805,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
   // Task functions
   const addTask = async (task) => {
     const { data, error } = await supabase.from('tasks')
-      .insert({ ...taskToDb(task), workspace_id: workspace.id }).select().single();
+      .insert({ ...taskToDb(task), workspace_id: workspace.id, created_by: session.user.id }).select().single();
     if (error) return dbError('Error saving task. Please try again.', error);
     setTasks(prev => [...prev, dbToTask(data)]);
     showNotification('Task added successfully!');
@@ -1691,7 +1693,7 @@ function KanbanView({ tasks, projects, clients, teamMembers, columns, onColumnsC
                       } ${isOverdue ? 'border-red-300 bg-red-50' : ''}`}
                     >
                       <div className="flex items-start justify-between mb-2">
-                        <h4 className="font-semibold text-gray-900 flex-1">{task.title}</h4>
+                        <h4 className="font-semibold text-gray-900 flex-1">{task.isPrivate && <Lock size={13} className="inline align-text-bottom text-gray-400 mr-1" />}{task.title}</h4>
                         <button
                           onClick={() => onEditTask(task)}
                           className="text-gray-400 hover:text-brand-600 transition-colors"
@@ -2059,7 +2061,7 @@ function GanttView({ projects, tasks, clients, onEditProject, onEditTask }) {
                                   onClick={() => onEditTask(task)}
                                   className="text-sm text-gray-700 hover:text-brand-600 transition-colors text-left truncate"
                                 >
-                                  {task.title}
+                                  {task.isPrivate && <Lock size={12} className="inline align-text-bottom text-gray-400 mr-1" />}{task.title}
                                 </button>
                               </div>
                             </div>
@@ -2399,7 +2401,7 @@ function MyTasksView({ tasks, projects, clients, teamMembers, currentUserId, onA
             : <Circle size={22} className={isOverdue ? 'text-red-400 hover:text-red-600' : 'text-gray-300 hover:text-brand-600'} />}
         </button>
         <div className="flex-1 min-w-0">
-          <p className={`text-base font-medium ${isDone ? 'line-through text-gray-400' : 'text-gray-900'}`}>{task.title}</p>
+          <p className={`text-base font-medium ${isDone ? 'line-through text-gray-400' : 'text-gray-900'}`}>{task.isPrivate && <Lock size={13} className="inline align-text-bottom text-gray-400 mr-1" />}{task.title}</p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-sm">
             {!isDone && <PriorityBadge priority={task.priority} />}
             {task.dueDate && (
@@ -3172,7 +3174,7 @@ function TasksView({ tasks, projects, clients, teamMembers, onAdd, onEdit, onDel
                             <div className="flex justify-between items-start">
                               <div className="flex-1">
                                 <div className="flex items-center flex-wrap gap-3 mb-2">
-                                  <h4 className="text-lg font-bold text-gray-900">{task.title}</h4>
+                                  <h4 className="text-lg font-bold text-gray-900">{task.isPrivate && <Lock size={14} className="inline align-text-bottom text-gray-400 mr-1" />}{task.title}</h4>
                                   <StatusBadge status={task.status} />
                                   <PriorityBadge priority={task.priority} />
                                   {isOverdue && (
@@ -3692,7 +3694,7 @@ function TableView({ tasks, projects, clients, teamMembers, onEditTask, onUpdate
                     <tr key={task.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-6 py-4">
                         <div>
-                          <div className="font-medium text-gray-900">{task.title}</div>
+                          <div className="font-medium text-gray-900">{task.isPrivate && <Lock size={13} className="inline align-text-bottom text-gray-400 mr-1" />}{task.title}</div>
                           {client && (
                             <div className="text-sm text-gray-600">{client.name}</div>
                           )}
@@ -4694,6 +4696,7 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
     phaseName: '',
     section: '',
     sectionName: '',
+    isPrivate: false,
     ...(task || {})
   });
   const [newSubtask, setNewSubtask] = useState('');
@@ -4871,7 +4874,24 @@ function TaskModal({ task, projects, clients, teamMembers, onSave, onClose }) {
               ))}
             </select>
           </div>
-          
+
+          <label className="flex items-start gap-3 p-3 rounded-lg border border-gray-200 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors">
+            <input
+              type="checkbox"
+              checked={formData.isPrivate === true}
+              onChange={(e) => setFormData({ ...formData, isPrivate: e.target.checked })}
+              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+            />
+            <span className="flex-1">
+              <span className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+                <Lock size={14} className="text-gray-500" /> Private task
+              </span>
+              <span className="block text-xs text-gray-500 mt-0.5">
+                Only you can see this task. Teammates and admins won't — even in shared views.
+              </span>
+            </span>
+          </label>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
