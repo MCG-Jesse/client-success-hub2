@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, ChevronLeft, List, BookOpen, FileText, Link, Download, Upload, Table, PieChart, TrendingUp, Filter, Circle, Sun, LogOut, Copy, MessageSquare, Lock } from 'lucide-react';
+import { Plus, Users, FolderKanban, CheckSquare, LayoutDashboard, Edit2, Trash2, Clock, AlertCircle, CheckCircle, User, Calendar, Trello, BarChart3, ExternalLink, Menu, X, ChevronDown, ChevronRight, ChevronLeft, List, BookOpen, FileText, Link, Download, Upload, Table, PieChart, TrendingUp, Filter, Circle, Sun, LogOut, Copy, MessageSquare, Lock, Archive, ArchiveRestore } from 'lucide-react';
 import { supabase } from './supabaseClient';
 
 // PBB Template Definition
@@ -199,7 +199,8 @@ const dbToTask = (r) => ({
   subtasks: Array.isArray(r.subtasks) ? r.subtasks : [],
   phase: r.phase || '', phaseName: r.phase_name || '', section: r.section || '', sectionName: r.section_name || '',
   order: r.sort_order || 0,
-  isPrivate: r.is_private === true, createdBy: r.created_by || ''
+  isPrivate: r.is_private === true, createdBy: r.created_by || '',
+  completedAt: r.completed_at || '', archivedAt: r.archived_at || ''
 });
 const taskToDb = (t) => ({
   title: t.title || '', description: nz(t.description), project_id: nz(t.projectId), assigned_to: nz(t.assignedTo),
@@ -826,6 +827,37 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
     showNotification('Task deleted successfully!');
   };
 
+  // Archiving: an archived task keeps its data but drops out of every active
+  // view. archived_at is set/cleared directly (taskToDb never sends it, so a
+  // normal task edit can't disturb it). Restore = clear archived_at.
+  const archiveTask = async (id) => {
+    const stamp = new Date().toISOString();
+    const { error } = await supabase.from('tasks').update({ archived_at: stamp }).eq('id', id);
+    if (error) return dbError('Error archiving task. Please try again.', error);
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, archivedAt: stamp } : t));
+    showNotification('Task archived.');
+  };
+
+  const unarchiveTask = async (id) => {
+    const { error } = await supabase.from('tasks').update({ archived_at: null }).eq('id', id);
+    if (error) return dbError('Error restoring task. Please try again.', error);
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, archivedAt: '' } : t));
+    showNotification('Task restored.');
+  };
+
+  const archiveTasks = async (ids) => {
+    if (!ids.length) return;
+    const stamp = new Date().toISOString();
+    const { error } = await supabase.from('tasks').update({ archived_at: stamp }).in('id', ids);
+    if (error) return dbError('Error archiving tasks. Please try again.', error);
+    const idSet = new Set(ids);
+    setTasks(prev => prev.map(t => idSet.has(t.id) ? { ...t, archivedAt: stamp } : t));
+    showNotification(`Archived ${ids.length} ${ids.length === 1 ? 'task' : 'tasks'}.`);
+  };
+
+  // Everything except the Today view works off the non-archived set.
+  const activeTasks = tasks.filter(t => !t.archivedAt);
+
   // Calendar event functions
   const addCalendarEvent = async (ev) => {
     const { data, error } = await supabase.from('calendar_events')
@@ -1199,7 +1231,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
             <DashboardView
               clients={clients}
               projects={projects}
-              tasks={tasks}
+              tasks={activeTasks}
               teamMembers={teamMembers}
               onNavigate={setActiveTab}
             />
@@ -1216,12 +1248,15 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
               onEdit={(task) => { setEditingItem(task); setShowTaskModal(true); }}
               onDelete={deleteTask}
               onUpdateStatus={updateTask}
+              onArchive={archiveTask}
+              onUnarchive={unarchiveTask}
+              onArchiveTasks={archiveTasks}
             />
           )}
 
           {activeTab === 'kanban' && (
             <KanbanView
-              tasks={tasks}
+              tasks={activeTasks}
               projects={projects}
               clients={clients}
               teamMembers={teamMembers}
@@ -1236,7 +1271,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
           {activeTab === 'gantt' && (
             <GanttView
               projects={projects}
-              tasks={tasks}
+              tasks={activeTasks}
               clients={clients}
               onEditProject={(project) => { setEditingItem(project); setShowProjectModal(true); }}
               onEditTask={(task) => { setEditingItem(task); setShowTaskModal(true); }}
@@ -1252,7 +1287,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
               onDelete={deleteClient}
               onView={(client) => { setEditingItem(client); setShowClientDetailModal(true); }}
               projects={projects}
-              tasks={tasks}
+              tasks={activeTasks}
               teamMembers={teamMembers}
               onNavigate={setActiveTab}
             />
@@ -1262,7 +1297,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
             <ProjectsView
               projects={projects}
               clients={clients}
-              tasks={tasks}
+              tasks={activeTasks}
               onAdd={() => { setEditingItem(null); setShowProjectModal(true); }}
               onEdit={(project) => { setEditingItem(project); setShowProjectModal(true); }}
               onDelete={deleteProject}
@@ -1272,7 +1307,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
           
           {activeTab === 'tasks' && (
             <TasksView
-              tasks={tasks}
+              tasks={activeTasks}
               projects={projects}
               clients={clients}
               teamMembers={teamMembers}
@@ -1285,7 +1320,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
 
           {activeTab === 'table' && (
             <TableView
-              tasks={tasks}
+              tasks={activeTasks}
               projects={projects}
               clients={clients}
               teamMembers={teamMembers}
@@ -1296,7 +1331,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
 
           {activeTab === 'analytics' && (
             <AnalyticsView
-              tasks={tasks}
+              tasks={activeTasks}
               projects={projects}
               clients={clients}
               teamMembers={teamMembers}
@@ -1319,7 +1354,7 @@ function ClientProjectManager({ session, onSignOut, joinToken }) {
               />
               <TeamView
                 teamMembers={teamMembers}
-                tasks={tasks}
+                tasks={activeTasks}
                 canManage={canManageAccess}
                 onAdd={() => { setEditingItem(null); setShowTeamModal(true); }}
                 onEdit={(member) => { setEditingItem(member); setShowTeamModal(true); }}
@@ -2297,13 +2332,14 @@ function DashboardView({ clients, projects, tasks, teamMembers, onNavigate }) {
 }
 
 // My Tasks View Component (Today-style personal agenda)
-function MyTasksView({ tasks, projects, clients, teamMembers, currentUserId, onAdd, onEdit, onDelete, onUpdateStatus }) {
+function MyTasksView({ tasks, projects, clients, teamMembers, currentUserId, onAdd, onEdit, onDelete, onUpdateStatus, onArchive, onUnarchive, onArchiveTasks }) {
   // "Viewing as" identity — defaults to the logged-in user's own seat so the
   // agenda opens on THEIR tasks. Explicit choices are remembered per user.
   const storageKey = `my-tasks-user:${currentUserId}`;
   const mySeatId = teamMembers.find(m => m.userId === currentUserId)?.id || null;
   const [meId, setMeId] = useState(() => localStorage.getItem(storageKey) || '');
   const [showCompleted, setShowCompleted] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
 
   const today = new Date();
@@ -2346,8 +2382,21 @@ function MyTasksView({ tasks, projects, clients, teamMembers, currentUserId, onA
 
   // Filter to the selected person ("me")
   const mine = tasks.filter(t => effectiveMeId === 'all' || t.assignedTo === effectiveMeId);
-  const active = mine.filter(t => t.status !== 'completed');
-  const completed = mine.filter(t => t.status === 'completed');
+  const active = mine.filter(t => t.status !== 'completed' && !t.archivedAt);
+  const completed = mine.filter(t => t.status === 'completed' && !t.archivedAt);
+  const archived = mine.filter(t => t.archivedAt)
+    .sort((a, b) => (b.archivedAt || '').localeCompare(a.archivedAt || ''));
+
+  // Completed tasks finished more than 30 days ago — the bulk-archive target.
+  const archiveCutoff = new Date();
+  archiveCutoff.setDate(archiveCutoff.getDate() - 30);
+  const cutoffIso = archiveCutoff.toISOString();
+  const oldCompleted = completed.filter(t => t.completedAt && t.completedAt < cutoffIso);
+  const bulkArchive = () => {
+    if (!oldCompleted.length) return;
+    if (!confirm(`Archive ${oldCompleted.length} completed ${oldCompleted.length === 1 ? 'task' : 'tasks'} finished more than 30 days ago? You can restore them anytime from the Archived list.`)) return;
+    onArchiveTasks(oldCompleted.map(t => t.id));
+  };
 
   // Bucket active tasks by due date, then order each bucket by date and priority
   const byDatePriority = (a, b) => {
@@ -2425,6 +2474,57 @@ function MyTasksView({ tasks, projects, clients, teamMembers, currentUserId, onA
             )}
           </div>
         </div>
+        {isDone && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onArchive(task.id); }}
+            className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-brand-600 transition-all flex-shrink-0 mt-1"
+            title="Archive task"
+          >
+            <Archive size={16} />
+          </button>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
+          className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all flex-shrink-0 mt-1"
+          title="Delete task"
+        >
+          <Trash2 size={16} />
+        </button>
+      </div>
+    );
+  };
+
+  // Archived rows: read-only-ish, with a Restore action instead of a checkbox.
+  const renderArchivedTask = (task) => {
+    const project = projectFor(task);
+    const archivedOn = task.archivedAt
+      ? new Date(task.archivedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+      : null;
+    return (
+      <div
+        key={task.id}
+        onClick={() => onEdit(task)}
+        className="group flex items-start gap-3 px-4 py-3 rounded-lg border border-transparent hover:border-gray-200 hover:bg-gray-50 transition-colors cursor-pointer"
+      >
+        <Archive size={20} className="mt-0.5 flex-shrink-0 text-gray-300" />
+        <div className="flex-1 min-w-0">
+          <p className="text-base font-medium text-gray-500">{task.isPrivate && <Lock size={13} className="inline align-text-bottom text-gray-400 mr-1" />}{task.title}</p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1 text-sm text-gray-400">
+            {archivedOn && <span>Archived {archivedOn}</span>}
+            {project && (
+              <span className="flex items-center gap-1.5">
+                <span className={`w-2 h-2 rounded-full ${projectColor(project.id)}`}></span>{project.name}
+              </span>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onUnarchive(task.id); }}
+          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-brand-600 transition-all flex-shrink-0 mt-1 flex items-center gap-1 text-sm"
+          title="Restore task"
+        >
+          <ArchiveRestore size={16} /> Restore
+        </button>
         <button
           onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
           className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-red-500 transition-all flex-shrink-0 mt-1"
@@ -2559,14 +2659,39 @@ function MyTasksView({ tasks, projects, clients, teamMembers, currentUserId, onA
           {/* Completed */}
           {completed.length > 0 && (
             <div className="mt-2">
+              <div className="flex items-center justify-between pr-4">
+                <button
+                  onClick={() => setShowCompleted(!showCompleted)}
+                  className="flex items-center gap-2 px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                >
+                  {showCompleted ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  <span className="font-medium">Completed · {completed.length}</span>
+                </button>
+                {oldCompleted.length > 0 && (
+                  <button
+                    onClick={bulkArchive}
+                    className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-brand-600 transition-colors"
+                    title="Archive completed tasks finished more than 30 days ago"
+                  >
+                    <Archive size={15} /> Archive {oldCompleted.length} older than 30 days
+                  </button>
+                )}
+              </div>
+              {showCompleted && <div>{completed.map(renderTask)}</div>}
+            </div>
+          )}
+
+          {/* Archived */}
+          {archived.length > 0 && (
+            <div className="mt-2">
               <button
-                onClick={() => setShowCompleted(!showCompleted)}
+                onClick={() => setShowArchived(!showArchived)}
                 className="flex items-center gap-2 px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition-colors"
               >
-                {showCompleted ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                <span className="font-medium">Completed · {completed.length}</span>
+                {showArchived ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                <span className="font-medium">Archived · {archived.length}</span>
               </button>
-              {showCompleted && <div>{completed.map(renderTask)}</div>}
+              {showArchived && <div>{archived.map(renderArchivedTask)}</div>}
             </div>
           )}
         </div>
